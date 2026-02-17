@@ -2,17 +2,23 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Protocol
 
 from dotenv import load_dotenv
 
-from call_summariser.gemini_client import GeminiLLM
 from call_summariser.optional_gating import validate_optional_sections_against_transcript
 from call_summariser.summariser import Summariser
 from call_summariser.summary_validator import validate_summary
 from call_summariser.transcript_parser import parse_transcript
 
+EXPECTED_TRANSCRIPTS = 10
 
-def main() -> int:
+
+class LLM(Protocol):
+    def generate(self, prompt: str) -> str: ...
+
+
+def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
     load_dotenv()
 
     p = argparse.ArgumentParser()
@@ -20,17 +26,25 @@ def main() -> int:
     p.add_argument("--out-dir", type=Path, required=True)
     p.add_argument("--company-name", type=str, default="COMPANY_NAME")
     p.add_argument("--model", type=str, default="gemini-3-flash-preview")
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
-    # B1: Fail fast if no transcripts are found (prevents false "PASSED")
     inputs = sorted(args.in_dir.glob("*.txt"))
     if not inputs:
         print(f"No .txt transcripts found in: {args.in_dir.resolve()}")
         return 2
 
+    if len(inputs) != EXPECTED_TRANSCRIPTS:
+        print(f"Expected {EXPECTED_TRANSCRIPTS} transcripts, found {len(inputs)} in: {args.in_dir.resolve()}")
+        return 2
+
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    llm = GeminiLLM(model=args.model)
+    # Lazy-load real Gemini only when actually needed (keeps tests fast)
+    if llm is None:
+        from call_summariser.gemini_client import GeminiLLM
+
+        llm = GeminiLLM(model=args.model)
+
     summariser = Summariser(llm=llm, company_name=args.company_name, max_attempts=2)
 
     failures: list[str] = []
