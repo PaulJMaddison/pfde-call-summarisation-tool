@@ -9,3 +9,4 @@ outputs/
 __pycache__/
 *.pyc
 *.egg-info/
+tests/__pycache__/test_summary_validator.cpython-313-pytest-9.0.2.pyc
