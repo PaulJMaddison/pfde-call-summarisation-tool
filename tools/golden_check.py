@@ -22,6 +22,12 @@ def main() -> int:
     p.add_argument("--model", type=str, default="gemini-3-flash-preview")
     args = p.parse_args()
 
+    # B1: Fail fast if no transcripts are found (prevents false "PASSED")
+    inputs = sorted(args.in_dir.glob("*.txt"))
+    if not inputs:
+        print(f"No .txt transcripts found in: {args.in_dir.resolve()}")
+        return 2
+
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     llm = GeminiLLM(model=args.model)
@@ -30,7 +36,7 @@ def main() -> int:
     failures: list[str] = []
     retries_report: list[str] = []
 
-    for fp in sorted(args.in_dir.glob("*.txt")):
+    for fp in inputs:
         raw = fp.read_text(encoding="utf-8")
         t = parse_transcript(raw)
 
