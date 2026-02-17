@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import re
-from call_summariser.summary_validator import OPTIONAL_HEADER_LINES, ValidationError
 
+from call_summariser.summary_validator import OPTIONAL_HEADER_LINES, ValidationError
 
 _KEYWORDS = {
     "Liability Summary:": ["fault", "liable", "liability", "responsible", "blame"],

@@ -1,4 +1,5 @@
 import pytest
+
 from call_summariser.summary_validator import ValidationError, validate_summary
 
 

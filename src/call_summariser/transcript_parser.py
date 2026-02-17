@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
 
 
 @dataclass(frozen=True)
@@ -13,13 +12,13 @@ class TranscriptLine:
 
 @dataclass(frozen=True)
 class Transcript:
-    metadata: Dict[str, str]
-    lines: List[TranscriptLine]
+    metadata: dict[str, str]
+    lines: list[TranscriptLine]
 
 
 def parse_transcript(raw: str) -> Transcript:
-    metadata: Dict[str, str] = {}
-    lines: List[TranscriptLine] = []
+    metadata: dict[str, str] = {}
+    lines: list[TranscriptLine] = []
 
     in_body = False
     for line in raw.splitlines():

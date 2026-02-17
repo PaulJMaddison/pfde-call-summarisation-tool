@@ -1,4 +1,5 @@
 import pytest
+
 from call_summariser.summariser import Summariser
 from call_summariser.transcript_parser import Transcript, TranscriptLine
 

@@ -1,4 +1,5 @@
 import pytest
+
 from call_summariser.optional_gating import validate_optional_sections_against_transcript
 from call_summariser.summary_validator import ValidationError
 

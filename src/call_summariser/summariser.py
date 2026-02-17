@@ -21,7 +21,7 @@ class Summariser:
     max_attempts: int = 2
 
     def summarise_with_result(self, t: Transcript) -> RunResult:
-        transcript_text = "\n".join(f"{l.speaker}: {l.text}" for l in t.lines)
+        transcript_text = "\n".join(f"{line.speaker}: {line.text}" for line in t.lines)
         prompt = build_prompt(t, company_name=self.company_name)
 
         last_err: Exception | None = None

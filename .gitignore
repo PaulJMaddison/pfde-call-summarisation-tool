@@ -3,3 +3,8 @@
 *.user
 *.userosscache
 *.sln.docstates
+.env
+outputs/
+.venv/
+__pycache__/
+*.pyc

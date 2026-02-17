@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from call_summariser.gemini_client import GeminiLLM
-from call_summariser.summariser import Summariser
-from call_summariser.transcript_parser import parse_transcript
-from call_summariser.summary_validator import validate_summary
 from call_summariser.optional_gating import validate_optional_sections_against_transcript
+from call_summariser.summariser import Summariser
+from call_summariser.summary_validator import validate_summary
+from call_summariser.transcript_parser import parse_transcript
 
 
 def main() -> int:
@@ -41,7 +40,7 @@ def main() -> int:
 
             # Double-check validations explicitly (belt & braces)
             validate_summary(summary, company_name=args.company_name)
-            transcript_text = "\n".join(f"{l.speaker}: {l.text}" for l in t.lines)
+            transcript_text = "\n".join(f"{line.speaker}: {line.text}" for line in t.lines)
             validate_optional_sections_against_transcript(summary, transcript_text)
 
             out_fp = args.out_dir / f"{fp.stem}-summary.txt"

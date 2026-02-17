@@ -1,9 +1,12 @@
 from __future__ import annotations
+
 from call_summariser.transcript_parser import Transcript
 
 
 def build_prompt(t: Transcript, *, company_name: str) -> str:
-    transcript_text = "\n".join(f"[{l.timestamp}] {l.speaker}: {l.text}" for l in t.lines)
+    transcript_text = "\n".join(
+        f"[{line.timestamp}] {line.speaker}: {line.text}" for line in t.lines
+    )
 
     return f"""You are an expert insurance call summariser.
 
