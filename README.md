@@ -162,3 +162,101 @@ python tools\golden_check.py --in-dir "Transcripts to Summarise" --out-dir outpu
 ```
 
 All commands should pass without errors.
+
+## Evaluation Criteria Used to Assess Solution Quality
+
+During development, each generated summary was evaluated against the
+five specified quality checks:
+
+1.  **Issue Identification & Actions Taken**
+    -   Ensured the summary clearly captured the purpose of the call and
+        the actions agreed.
+    -   Verified that another agent could continue the case using the
+        summary alone.
+2.  **Accuracy of Critical Facts**
+    -   Prompt instructed the LLM not to invent information.
+    -   Validation step enforced structural correctness; unknowns were
+        recorded as "Unknown".
+3.  **Operational Handover Readiness**
+    -   Mandatory `Next Steps` section always includes:
+        -   `- COMPANY_NAME:`
+        -   `- Other:`
+    -   Ensures downstream agents know responsibilities.
+4.  **Professional Tone**
+    -   Prompt prohibits markdown and informal language.
+    -   Encourages concise, customer-appropriate phrasing.
+5.  **Character Limit Compliance (≤ 1500)**
+    -   Automated validation rejects outputs exceeding limits.
+    -   Retry mechanism prompts LLM to rewrite concisely when required.
+
+Automated checks in `summary_validator.py` map directly to these
+criteria to reduce hallucinations and formatting errors.
+
+------------------------------------------------------------------------
+
+## Trade-off Analysis for Key Decisions
+
+-   **Strict Validation vs. Throughput**
+    -   Enforcing exact headers and section order improves downstream
+        reliability.
+    -   May increase retries under free-tier LLM quotas.
+    -   Mitigated via minimal local repair for near-miss outputs.
+-   **Retry Attempts**
+    -   `max_attempts=1` balances quality improvement with API cost.
+    -   Prevents infinite loops on non-compliant outputs.
+-   **Prompt Engineering vs. Post-Processing**
+    -   Primary behaviour driven by prompt to minimise hallucination.
+    -   Lightweight post-validation/repair avoids additional LLM calls.
+-   **Model Choice (Gemini Flash)**
+    -   Selected for low latency and cost efficiency.
+    -   Free-tier quotas require batch runs; system supports
+        accumulation of outputs across runs.
+
+------------------------------------------------------------------------
+
+## Production Deployment Considerations
+
+-   **Rate Limiting & Backoff**
+    -   Implement exponential backoff for 429/503 responses.
+    -   Queue transcripts to avoid burst limits.
+-   **Observability**
+    -   Log:
+        -   attempts used per transcript
+        -   validation failures
+        -   optional section gating outcomes
+-   **Configuration**
+    -   Externalise:
+        -   model name
+        -   company name
+        -   max attempts
+        -   character limits
+-   **Security**
+    -   Store API keys via environment variables (`.env`).
+    -   Exclude secrets via `.gitignore`.
+-   **Scalability**
+    -   Process transcripts asynchronously in a worker queue.
+    -   Cache successful summaries to avoid reprocessing.
+
+------------------------------------------------------------------------
+
+## Demonstration of Edge Case Handling
+
+The system explicitly handles:
+
+-   **Missing or malformed headers**
+    -   Validation rejects non-compliant structure.
+-   **Hallucinated optional sections**
+    -   `optional_gating.py` ensures sections appear only if discussed
+        in transcript.
+-   **Unknown Caller Relationship/Direction**
+    -   Prompt instructs use of "Unknown" when not explicitly stated.
+-   **Transcript Noise (STT Artifacts)**
+    -   Parser tolerates encoding artefacts and fragmented sentences.
+-   **Partial Output Writes**
+    -   Golden check fails if fewer than 10 summaries are written.
+-   **Character Limit Exceeded**
+    -   Output rejected and retried with concision instruction.
+
+These checks improve robustness for real-world speech-to-text transcript
+quality issues.
+
