@@ -37,8 +37,6 @@ outputs/
 pyproject.toml
 ```
 
-> Note: the repository currently contains a `readme.md` file. For submission packaging, ensure the final zip includes **README.md** (capitalised) as required by the assessment brief.
-
 ---
 
 ## Setup
