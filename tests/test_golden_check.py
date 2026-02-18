@@ -90,3 +90,24 @@ def test_golden_check_requires_10_outputs_written(tmp_path: Path) -> None:
 
     assert rc != 0
     assert "Expected 10 output files" in out
+
+def test_golden_check_writes_10_outputs_on_success(tmp_path: Path) -> None:
+    in_dir = tmp_path / "in"
+    in_dir.mkdir()
+
+    for i in range(10):
+        (in_dir / f"t{i}.txt").write_text(
+            "Caller: X\n\n[00:00] AGENT: Hi\n[00:01] CALLER: Hello\n",
+            encoding="utf-8",
+        )
+
+    out_dir = tmp_path / "out"
+
+    rc, out = run_main(
+        ["--in-dir", str(in_dir), "--out-dir", str(out_dir), "--company-name", "COMPANY_NAME"],
+        llm=FakeLLM(),
+    )
+
+    assert rc == 0, out
+    outputs = sorted(out_dir.glob("*-summary.txt"))
+    assert len(outputs) == 10
