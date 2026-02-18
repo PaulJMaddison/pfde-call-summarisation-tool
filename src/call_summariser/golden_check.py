@@ -34,7 +34,9 @@ def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
         return 2
 
     if len(inputs) != EXPECTED_TRANSCRIPTS:
-        print(f"Expected {EXPECTED_TRANSCRIPTS} transcripts, found {len(inputs)} in: {args.in_dir.resolve()}")
+        print(
+            f"Expected {EXPECTED_TRANSCRIPTS} transcripts, found {len(inputs)} in: {args.in_dir.resolve()}"
+        )
         return 2
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -58,7 +60,6 @@ def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
             result = summariser.summarise_with_result(t)
             summary = result.summary
 
-            # Double-check validations explicitly (belt & braces)
             validate_summary(summary, company_name=args.company_name)
             transcript_text = "\n".join(f"{line.speaker}: {line.text}" for line in t.lines)
             validate_optional_sections_against_transcript(summary, transcript_text)
@@ -82,7 +83,20 @@ def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
         print("FAILURES:")
         for f in failures:
             print(f"  - {f}")
+
+        # NEW: enforce output file count even when failures occur
+        written = len(list(args.out_dir.glob("*-summary.txt")))
+        if written != EXPECTED_TRANSCRIPTS:
+            print(f"Expected {EXPECTED_TRANSCRIPTS} output files, wrote {written} in: {args.out_dir.resolve()}")
+            return 2
+
         return 1
+
+    # NEW: enforce output file count even on success path
+    written = len(list(args.out_dir.glob("*-summary.txt")))
+    if written != EXPECTED_TRANSCRIPTS:
+        print(f"Expected {EXPECTED_TRANSCRIPTS} output files, wrote {written} in: {args.out_dir.resolve()}")
+        return 2
 
     print("Golden check PASSED: all transcripts summarised and validated.")
     return 0
