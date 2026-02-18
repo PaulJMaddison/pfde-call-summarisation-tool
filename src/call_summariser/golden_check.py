@@ -18,6 +18,14 @@ class LLM(Protocol):
     def generate(self, prompt: str) -> str: ...
 
 
+def _enforce_output_count(out_dir: Path) -> int | None:
+    written = len(list(out_dir.glob("*-summary.txt")))
+    if written != EXPECTED_TRANSCRIPTS:
+        print(f"Expected {EXPECTED_TRANSCRIPTS} output files, wrote {written} in: {out_dir.resolve()}")
+        return 2
+    return None
+
+
 def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
     load_dotenv()
 
@@ -34,14 +42,11 @@ def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
         return 2
 
     if len(inputs) != EXPECTED_TRANSCRIPTS:
-        print(
-            f"Expected {EXPECTED_TRANSCRIPTS} transcripts, found {len(inputs)} in: {args.in_dir.resolve()}"
-        )
+        print(f"Expected {EXPECTED_TRANSCRIPTS} transcripts, found {len(inputs)} in: {args.in_dir.resolve()}")
         return 2
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Lazy-load real Gemini only when actually needed (keeps tests fast)
     if llm is None:
         from call_summariser.gemini_client import GeminiLLM
 
@@ -84,19 +89,15 @@ def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
         for f in failures:
             print(f"  - {f}")
 
-        # NEW: enforce output file count even when failures occur
-        written = len(list(args.out_dir.glob("*-summary.txt")))
-        if written != EXPECTED_TRANSCRIPTS:
-            print(f"Expected {EXPECTED_TRANSCRIPTS} output files, wrote {written} in: {args.out_dir.resolve()}")
-            return 2
+        rc = _enforce_output_count(args.out_dir)
+        if rc is not None:
+            return rc
 
         return 1
 
-    # NEW: enforce output file count even on success path
-    written = len(list(args.out_dir.glob("*-summary.txt")))
-    if written != EXPECTED_TRANSCRIPTS:
-        print(f"Expected {EXPECTED_TRANSCRIPTS} output files, wrote {written} in: {args.out_dir.resolve()}")
-        return 2
+    rc = _enforce_output_count(args.out_dir)
+    if rc is not None:
+        return rc
 
     print("Golden check PASSED: all transcripts summarised and validated.")
     return 0
