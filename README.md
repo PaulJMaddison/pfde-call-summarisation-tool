@@ -1,262 +1,276 @@
 # PFDE Call Summarisation Tool
 
-A Python based command line tool that generates structured insurance
-call summaries from raw transcripts using an LLM (Google Gemini), with
-strict validation and retry logic to ensure outputs meet required
-business constraints.
+A Python-based command line tool that generates **structured insurance call summaries** from raw transcripts using an LLM (Google Gemini), with **strict validation**, **conditional section gating**, and **retry/repair logic** to ensure outputs meet required business constraints.
 
-The tool parses inbound call transcripts and produces summaries that:
+The pipeline:
 
--   Follow an exact header structure and ordering
--   Do not exceed 1500 characters
--   Include only relevant optional sections discussed in the call
--   Contain company specific Next Steps
--   Avoid hallucinated or unsupported content
+- Parses noisy speech-to-text transcripts
+- Builds a structured prompt
+- Calls an LLM
+- Validates **format/order**, **required sections**, and **≤ 1,500 chars**
+- Enforces that optional sections appear **only if supported by transcript content**
+- Writes one `*-summary.txt` output per transcript
 
-A "golden check" integration script is provided to validate all
-generated summaries against these constraints before submission.
+A **“golden check”** script is provided to run the full pipeline across the 10 evaluation transcripts and fail fast if any output is non-compliant.
 
-------------------------------------------------------------------------
+---
 
 ## Project Structure
 
-    src/
-      call_summariser/
-        cli.py
-        gemini_client.py
-        optional_gating.py
-        prompting.py
-        run_result.py
-        summariser.py
-        summary_validator.py
-        transcript_parser.py
-    tests/
-    tools/
-      golden_check.py
-    outputs/
+```
+src/
+  call_summariser/
+    __main__.py
+    cli.py
+    gemini_client.py
+    golden_check.py
+    optional_gating.py
+    prompting.py
+    run_result.py
+    summariser.py
+    summary_validator.py
+    transcript_parser.py
+tests/
+tools/
+  golden_check.py
+outputs/
+pyproject.toml
+```
 
-------------------------------------------------------------------------
+> Note: the repository currently contains a `readme.md` file. For submission packaging, ensure the final zip includes **README.md** (capitalised) as required by the assessment brief.
+
+---
 
 ## Setup
 
-### 1. Create and activate virtual environment
+### 1) Create and activate a virtual environment
 
-``` powershell
+Windows (PowerShell):
+
+```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-### 2. Install project (editable mode)
+macOS/Linux:
 
-``` powershell
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+### 2) Install (editable mode) + dev dependencies
+
+```bash
 pip install -e ".[dev]"
 ```
 
-------------------------------------------------------------------------
+---
 
 ## Configure Gemini API Key
 
 Create a `.env` file in the repository root:
 
-    GEMINI_API_KEY=your_api_key_here
+```dotenv
+GEMINI_API_KEY=your_api_key_here
+```
 
-This file is ignored via `.gitignore` and must not be committed.
+- The `.env` file is ignored via `.gitignore` and must not be committed.
+- Alternatively you can set `GEMINI_API_KEY` as an environment variable.
 
-------------------------------------------------------------------------
+---
 
 ## Running Unit Tests
 
-``` powershell
+```bash
 python -m pytest
 ```
 
-All tests are deterministic and use mocked LLM responses.
+All tests are deterministic and use injected/mocked LLM behaviour (no real Gemini calls).
 
-------------------------------------------------------------------------
+---
 
-## Running the CLI
+## Running the CLI (Generate Summaries)
 
-To generate summaries from transcripts:
+To generate summaries from a directory of transcripts:
 
-``` powershell
+```bash
 python -m call_summariser --in-dir "Transcripts to Summarise" --out-dir outputs --company-name COMPANY_NAME
 ```
 
-Summaries will be written to the `outputs/` directory.
+- Summaries are written to `outputs/` as `*-summary.txt`.
+- You can override the model with `--model` if desired.
 
-------------------------------------------------------------------------
+---
 
-## Golden Integration Check
+## Golden Integration Check (Required Pre-Submission)
 
-This script runs the full summarisation pipeline on all transcripts and:
+This runs the full pipeline over the 10 transcripts and:
 
--   Validates header structure and order
--   Enforces the 1500 character limit
--   Verifies optional sections are supported by transcript content
--   Ensures Next Steps formatting
--   Retries generation if validation fails
--   Reports any retries used
--   Fails if any summary is invalid
+- Validates header structure and order
+- Enforces the 1,500 character limit
+- Verifies optional sections are supported by transcript content
+- Ensures `Next Steps` formatting (`- COMPANY_NAME:` and `- Other:`)
+- Applies minimal safe repair for common near-miss outputs before validation
+- Reports which transcripts required retries
+- Fails if any summary is invalid or if not all 10 outputs are written
 
-Run:
+### Run (recommended command)
 
-``` powershell
-python tools\golden_check.py --in-dir "Transcripts to Summarise" --out-dir outputs --company-name COMPANY_NAME
+This command explicitly invokes the **refactored** golden check in `src/call_summariser/golden_check.py`:
+
+```bash
+python -c "from call_summariser.golden_check import main; import sys; raise SystemExit(main(sys.argv[1:]))" --in-dir "Transcripts to Summarise" --out-dir outputs --company-name COMPANY_NAME
 ```
 
-A successful run will output:
+(You may still have `tools/golden_check.py`, but the command above guarantees you are using the up-to-date golden check implementation in `src/`.)
 
-    Golden check PASSED: all transcripts summarised and validated.
+A successful run prints:
 
-------------------------------------------------------------------------
+```
+Golden check PASSED: all transcripts summarised and validated.
+```
+
+---
 
 ## Constraints Enforced
 
 Generated summaries must:
 
--   Use exact headers:
-    -   Caller:
-    -   Subject:
-    -   Executive Summary:
-    -   Next Steps:
--   Maintain this exact order
--   Be ≤ 1500 characters total
--   Include:
-    -   `- COMPANY_NAME:` action
-    -   `- Other:` action (or None)
--   Include optional sections only if supported:
-    -   Liability Summary:
-    -   Negotiation Summary:
-    -   Vehicle Damage:
-    -   Injury:
-    -   Property:
--   Contain no markdown or additional headers
--   Avoid inventing or inferring unknown details
+- Use exact required headers as whole lines, in this order:
+  - `Caller:`
+  - `Subject:`
+  - `Executive Summary:`
+  - `Next Steps:`
+- Be **≤ 1500 characters** total
+- Include **both** Next Steps lines:
+  - `- COMPANY_NAME: ...`
+  - `- Other: ...` (or `None`)
+- Include optional sections **only if supported by the transcript**:
+  - `Liability Summary:`
+  - `Negotiation Summary:`
+  - `Vehicle Damage:`
+  - `Injury:`
+  - `Property:`
+- Contain no markdown and no extra headers
+- Avoid inventing unknown details (use `Unknown` where appropriate)
 
-------------------------------------------------------------------------
+---
 
 ## Linting
 
 Run Ruff:
 
-``` powershell
+```bash
 ruff check .
 ```
 
 Auto-fix where possible:
 
-``` powershell
+```bash
 ruff check . --fix
 ```
 
-------------------------------------------------------------------------
+---
 
 ## Pre-Submission Checklist
 
-Before submission:
-
-``` powershell
+```bash
 python -m pytest
 ruff check .
-python tools\golden_check.py --in-dir "Transcripts to Summarise" --out-dir outputs --company-name COMPANY_NAME
+python -c "from call_summariser.golden_check import main; import sys; raise SystemExit(main(sys.argv[1:]))" --in-dir "Transcripts to Summarise" --out-dir outputs --company-name COMPANY_NAME
 ```
 
-All commands should pass without errors.
+All commands should pass without errors, and `outputs/` should contain 10 `*-summary.txt` files.
+
+---
 
 ## Evaluation Criteria Used to Assess Solution Quality
 
-During development, each generated summary was evaluated against the
-five specified quality checks:
+During development, each generated summary was assessed against the five specified quality checks:
 
-1.  **Issue Identification & Actions Taken**
-    -   Ensured the summary clearly captured the purpose of the call and
-        the actions agreed.
-    -   Verified that another agent could continue the case using the
-        summary alone.
-2.  **Accuracy of Critical Facts**
-    -   Prompt instructed the LLM not to invent information.
-    -   Validation step enforced structural correctness; unknowns were
-        recorded as "Unknown".
-3.  **Operational Handover Readiness**
-    -   Mandatory `Next Steps` section always includes:
-        -   `- COMPANY_NAME:`
-        -   `- Other:`
-    -   Ensures downstream agents know responsibilities.
-4.  **Professional Tone**
-    -   Prompt prohibits markdown and informal language.
-    -   Encourages concise, customer-appropriate phrasing.
-5.  **Character Limit Compliance (≤ 1500)**
-    -   Automated validation rejects outputs exceeding limits.
-    -   Retry mechanism prompts LLM to rewrite concisely when required.
+1. **Issue Identification & Actions Taken**
+   - Summary clearly captures why the call happened and what was done.
 
-Automated checks in `summary_validator.py` map directly to these
-criteria to reduce hallucinations and formatting errors.
+2. **Accuracy of Critical Facts**
+   - Prompt instructs no invention.
+   - Optional sections are gated against the transcript to reduce hallucination risk.
+   - Unknowns are recorded as `Unknown`.
 
-------------------------------------------------------------------------
+3. **Operational Handover Readiness**
+   - Mandatory `Next Steps` always includes both company and other-party actions.
+
+4. **Professional Tone**
+   - Prompt prohibits markdown and informal content; outputs are suitable for customer visibility.
+
+5. **Character Limit Compliance (≤ 1,500)**
+   - Automated validation rejects oversize outputs; retry path requests more concise rewrites.
+
+These checks are enforced programmatically in `summary_validator.py` and `optional_gating.py` to reduce format drift and unsupported content.
+
+---
 
 ## Trade-off Analysis for Key Decisions
 
--   **Strict Validation vs. Throughput**
-    -   Enforcing exact headers and section order improves downstream
-        reliability.
-    -   May increase retries under free-tier LLM quotas.
-    -   Mitigated via minimal local repair for near-miss outputs.
--   **Retry Attempts**
-    -   `max_attempts=1` balances quality improvement with API cost.
-    -   Prevents infinite loops on non-compliant outputs.
--   **Prompt Engineering vs. Post-Processing**
-    -   Primary behaviour driven by prompt to minimise hallucination.
-    -   Lightweight post-validation/repair avoids additional LLM calls.
--   **Model Choice (Gemini Flash)**
-    -   Selected for low latency and cost efficiency.
-    -   Free-tier quotas require batch runs; system supports
-        accumulation of outputs across runs.
+- **Strict validation vs throughput**
+  - Exact headers/order improves downstream reliability.
+  - Can increase retries under free-tier quotas.
+  - Mitigated with minimal local repair for near-miss outputs.
 
-------------------------------------------------------------------------
+- **Retry attempts**
+  - `max_attempts` is capped to prevent infinite loops and control cost/quota usage.
+  - Golden check uses a conservative attempt count to reduce quota burn.
+
+- **Prompt engineering vs post-processing**
+  - Prompt drives most correctness.
+  - Lightweight repair is used to fix structural near-misses without inventing facts.
+
+- **Raw API calls vs framework**
+  - Direct SDK usage keeps dependencies minimal and behaviour explicit.
+  - Layering keeps the LLM boundary mockable for tests.
+
+---
 
 ## Production Deployment Considerations
 
--   **Rate Limiting & Backoff**
-    -   Implement exponential backoff for 429/503 responses.
-    -   Queue transcripts to avoid burst limits.
--   **Observability**
-    -   Log:
-        -   attempts used per transcript
-        -   validation failures
-        -   optional section gating outcomes
--   **Configuration**
-    -   Externalise:
-        -   model name
-        -   company name
-        -   max attempts
-        -   character limits
--   **Security**
-    -   Store API keys via environment variables (`.env`).
-    -   Exclude secrets via `.gitignore`.
--   **Scalability**
-    -   Process transcripts asynchronously in a worker queue.
-    -   Cache successful summaries to avoid reprocessing.
+- **Rate limiting & backoff**
+  - Implement exponential backoff for 429/503.
+  - Use queue-based processing to avoid burst limits.
 
-------------------------------------------------------------------------
+- **Observability**
+  - Log attempts per transcript, validation failures, and gating outcomes.
+
+- **Configuration**
+  - Externalise model name, company name, max attempts, and char limits.
+
+- **Security**
+  - API keys via env vars / `.env`, excluded from Git.
+
+- **Scalability**
+  - Parallelise transcript processing via workers, cache successful outputs, and avoid reprocessing.
+
+---
 
 ## Demonstration of Edge Case Handling
 
 The system explicitly handles:
 
--   **Missing or malformed headers**
-    -   Validation rejects non-compliant structure.
--   **Hallucinated optional sections**
-    -   `optional_gating.py` ensures sections appear only if discussed
-        in transcript.
--   **Unknown Caller Relationship/Direction**
-    -   Prompt instructs use of "Unknown" when not explicitly stated.
--   **Transcript Noise (STT Artifacts)**
-    -   Parser tolerates encoding artefacts and fragmented sentences.
--   **Partial Output Writes**
-    -   Golden check fails if fewer than 10 summaries are written.
--   **Character Limit Exceeded**
-    -   Output rejected and retried with concision instruction.
+- **Missing/malformed required headers**
+  - Validation fails with clear error messages.
 
-These checks improve robustness for real-world speech-to-text transcript
-quality issues.
+- **Unsupported optional sections**
+  - Optional sections are validated against transcript content (reduces hallucinated sections).
 
+- **Unknown caller relationship/direction**
+  - Prompt and repair logic use safe placeholders rather than inventing facts.
+
+- **Transcript noise (STT artefacts)**
+  - Parser tolerates fragmented lines and encoding artefacts.
+
+- **Partial output writes**
+  - Golden check fails if fewer than 10 outputs are written.
+
+- **Character limit exceeded**
+  - Validation rejects oversize outputs; retry path asks the model to rewrite concisely.
+
+---
