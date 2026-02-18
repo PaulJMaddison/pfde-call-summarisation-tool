@@ -56,3 +56,63 @@ def validate_summary(text: str, *, company_name: str, max_chars: int = 1500) -> 
     for h in OPTIONAL_HEADER_LINES:
         if h in text and _line_index(lines, h) == -1:
             raise ValidationError(f"Optional header '{h}' must appear as its own line.")
+
+
+def repair_summary_minimally(summary: str, *, company_name: str) -> str:
+    """
+    Make *minimal* safe edits so near-miss LLM outputs don't fail validation.
+    We never invent call facts; we only add placeholder structure when missing.
+    """
+    s = summary.strip()
+
+    lines = s.splitlines()
+
+    # --- Ensure Caller header exists ---
+    if _line_index(lines, "Caller:") == -1:
+        s = "Caller:\nUnknown, Unknown relationship, Inbound\n\n" + s
+        lines = s.splitlines()
+
+    # --- Ensure Next Steps exists ---
+    if _line_index(lines, "Next Steps:") == -1:
+        s += "\n\nNext Steps:\n"
+        lines = s.splitlines()
+
+    # --- Normalise Next Steps section ---
+    out: list[str] = []
+    in_next = False
+    found_company = False
+    found_other = False
+
+    for line in lines:
+        if line.strip() == "Next Steps:":
+            in_next = True
+            out.append("Next Steps:")
+            continue
+
+        if in_next:
+            # stop if new section
+            if any(line.strip() == h for h in OPTIONAL_HEADER_LINES):
+                in_next = False
+
+            stripped = line.strip()
+
+            if stripped.startswith(f"{company_name}:"):
+                found_company = True
+                out.append(f"- {stripped}")
+                continue
+
+            if stripped.startswith("Other:"):
+                found_other = True
+                out.append(f"- {stripped}")
+                continue
+
+        out.append(line)
+
+    # --- Add missing required bullets ---
+    if not found_company:
+        out.append(f"- {company_name}: None")
+
+    if not found_other:
+        out.append("- Other: None")
+
+    return "\n".join(out) + "\n"

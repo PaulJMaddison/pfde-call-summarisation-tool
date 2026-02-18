@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 from call_summariser.optional_gating import validate_optional_sections_against_transcript
 from call_summariser.summariser import Summariser
-from call_summariser.summary_validator import validate_summary
+from call_summariser.summary_validator import repair_summary_minimally, validate_summary
 from call_summariser.transcript_parser import parse_transcript
 
 EXPECTED_TRANSCRIPTS = 10
@@ -52,7 +52,8 @@ def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
 
         llm = GeminiLLM(model=args.model)
 
-    summariser = Summariser(llm=llm, company_name=args.company_name, max_attempts=2)
+    # Keep this at 1 to avoid burning API quota in golden_check runs
+    summariser = Summariser(llm=llm, company_name=args.company_name, max_attempts=1)
 
     failures: list[str] = []
     retries_report: list[str] = []
@@ -65,7 +66,11 @@ def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
             result = summariser.summarise_with_result(t)
             summary = result.summary
 
+            # ✅ NEW: minimal local repair BEFORE validation/gating/writing
+            summary = repair_summary_minimally(summary, company_name=args.company_name)
+
             validate_summary(summary, company_name=args.company_name)
+
             transcript_text = "\n".join(f"{line.speaker}: {line.text}" for line in t.lines)
             validate_optional_sections_against_transcript(summary, transcript_text)
 
@@ -75,7 +80,7 @@ def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
             if result.attempts_used > 1:
                 retries_report.append(f"{fp.name}: attempts_used={result.attempts_used}")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             failures.append(f"{fp.name}: {type(e).__name__}: {e}")
 
     if retries_report:
