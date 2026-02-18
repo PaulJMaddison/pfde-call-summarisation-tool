@@ -1,0 +1,11 @@
+Caller:
+Paul Kavanagh, Third Party Representative (Henderson Insurance), Inbound
+Subject:
+Insurance claim-related call
+Executive Summary:
+The caller contacted the insurer regarding an insurance-related matter. Key information from the call was discussed and next steps were agreed.
+- The caller discussed liability regarding a dog incident involving policyholders Mr. and Mrs. Farrell (PI-2024-71123).
+- Discussion focused on whether the dog was under the "care and control" of Pemberton’s policyholder or if Henderson's clients (the owners) retain liability.
+Next Steps:
+- COMPANY_NAME: Review the letter from Henderson Insurance regarding risk and investigation.
+- Other: Paul Kavanagh to provide written confirmation of their insurance position after speaking with his clients.

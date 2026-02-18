@@ -1,0 +1,11 @@
+Caller:
+Alan Murphy, Policyholder, Inbound
+Subject:
+Insurance claim-related call
+Executive Summary:
+The caller contacted the insurer regarding an insurance-related matter. Key information from the call was discussed and next steps were agreed.
+- Alan Murphy inquired about the start date for repairs following a burst pipe (PI-2024-55132).
+- The claim for repairs up to €12,400 has been approved, and the caller confirmed availability for contractor access.
+Next Steps:
+- COMPANY_NAME: Instruct the contractor to contact Alan Murphy within 48 hours to schedule a start date.
+- Other: None

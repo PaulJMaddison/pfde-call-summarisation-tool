@@ -1,0 +1,11 @@
+Caller:
+Frances Howard, Policyholder, Inbound
+Subject:
+Insurance claim-related call
+Executive Summary:
+The caller contacted the insurer regarding an insurance-related matter. Key information from the call was discussed and next steps were agreed.
+- The policyholder expressed a strong complaint regarding a six-week delay in assessing storm damage to her roof (PI-2024-83321).
+- The caller requested an immediate resolution and threatened a formal complaint if not contacted by 5:00 PM today.
+Next Steps:
+- COMPANY_NAME: Property claims team manager to call the policyholder back urgently before 5:00 PM.
+- Other: None

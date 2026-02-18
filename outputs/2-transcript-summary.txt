@@ -1,0 +1,12 @@
+Caller:
+Patricia Gallagher, Policyholder, Outbound
+Subject:
+Insurance claim-related call
+Executive Summary:
+- The caller contacted the insurer regarding an insurance-related matter. Key information from the call was discussed and next steps were agreed.
+- The insurer confirmed approval of vehicle claim PI-2024-81156 for a total of €2,340.
+The caller requested that the garage be paid directly and that a courtesy car be arranged for the 3-day repair period.
+Next Steps:
+- COMPANY_NAME: Arrange direct payment to the garage and coordinate a courtesy car through the partner agency.
+- Other: Patricia Gallagher to call back with the repair booking date.
+
