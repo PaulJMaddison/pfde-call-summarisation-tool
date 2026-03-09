@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
 import os
 import random
 import re
 import time
 from dataclasses import dataclass
-from typing import Any
 
 from google import genai
 
@@ -98,7 +96,7 @@ class GeminiLLM:
                 self._debug(f"success (elapsed {elapsed:.2f}s)")
                 return text
 
-            except concurrent.futures.TimeoutError as e:
+            except concurrent.futures.TimeoutError:
                 last_err = TimeoutError(f"Gemini call timed out after {self.timeout_s}s")
                 self._debug(str(last_err))
 
