@@ -3,15 +3,14 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from dotenv import load_dotenv
-
+from call_summariser.env_loader import load_dotenv_if_available
 from call_summariser.gemini_client import GeminiLLM
 from call_summariser.summariser import Summariser
 from call_summariser.transcript_parser import parse_transcript
 
 
 def main() -> int:
-    load_dotenv()
+    load_dotenv_if_available()
 
     p = argparse.ArgumentParser()
     p.add_argument("--in-dir", type=Path, required=True)

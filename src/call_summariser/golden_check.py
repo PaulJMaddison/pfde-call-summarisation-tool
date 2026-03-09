@@ -4,8 +4,7 @@ import argparse
 from pathlib import Path
 from typing import Protocol
 
-from dotenv import load_dotenv
-
+from call_summariser.env_loader import load_dotenv_if_available
 from call_summariser.optional_gating import validate_optional_sections_against_transcript
 from call_summariser.summariser import Summariser
 from call_summariser.summary_validator import repair_summary_minimally, validate_summary
@@ -30,7 +29,7 @@ def _enforce_output_count(out_dir: Path) -> int | None:
 
 
 def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
-    load_dotenv()
+    load_dotenv_if_available()
 
     p = argparse.ArgumentParser()
     p.add_argument("--in-dir", type=Path, required=True)

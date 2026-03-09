@@ -6,7 +6,7 @@ import re
 import time
 from dataclasses import dataclass
 
-from google import genai
+from google import genai  # type: ignore[import-not-found]
 
 
 @dataclass(frozen=True)

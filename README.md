@@ -96,6 +96,12 @@ To generate summaries from a directory of transcripts:
 python -m call_summariser --in-dir "Transcripts to Summarise" --out-dir outputs --company-name COMPANY_NAME
 ```
 
+Or, after installation, via the console entrypoint:
+
+```bash
+call-summariser --in-dir "Transcripts to Summarise" --out-dir outputs --company-name COMPANY_NAME
+```
+
 - Summaries are written to `outputs/` as `*-summary.txt`.
 - You can override the model with `--model` if desired.
 
