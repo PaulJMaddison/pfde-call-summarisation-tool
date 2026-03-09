@@ -40,3 +40,29 @@ def test_requires_company_next_steps_label_and_other():
     text = "Caller:\nX\nSubject:\nY\nExecutive Summary:\nZ\nNext Steps:\n- PFDE: A\n"
     with pytest.raises(ValidationError):
         validate_summary(text, company_name="COMPANY_NAME")
+
+
+def test_rejects_unknown_headers():
+    text = (
+        "Caller:\nX\n"
+        "Subject:\nY\n"
+        "Executive Summary:\nZ\n"
+        "Outcome:\nSettled\n"
+        "Next Steps:\n- COMPANY_NAME: A\n- Other: None\n"
+    )
+    with pytest.raises(ValidationError):
+        validate_summary(text, company_name="COMPANY_NAME")
+
+
+def test_requires_next_steps_bullets_inside_next_steps_section():
+    text = (
+        "Caller:\nX\n"
+        "Subject:\nY\n"
+        "Executive Summary:\nZ\n"
+        "Next Steps:\n"
+        "Liability Summary:\nUnknown\n"
+        "- COMPANY_NAME: A\n"
+        "- Other: None\n"
+    )
+    with pytest.raises(ValidationError):
+        validate_summary(text, company_name="COMPANY_NAME")
