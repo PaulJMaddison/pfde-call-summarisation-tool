@@ -21,7 +21,10 @@ class LLM(Protocol):
 def _enforce_output_count(out_dir: Path) -> int | None:
     written = len(list(out_dir.glob("*-summary.txt")))
     if written != EXPECTED_TRANSCRIPTS:
-        print(f"Expected {EXPECTED_TRANSCRIPTS} output files, wrote {written} in: {out_dir.resolve()}")
+        print(
+            f"Expected {EXPECTED_TRANSCRIPTS} output files, "
+            f"wrote {written} in: {out_dir.resolve()}"
+        )
         return 2
     return None
 
@@ -42,7 +45,10 @@ def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
         return 2
 
     if len(inputs) != EXPECTED_TRANSCRIPTS:
-        print(f"Expected {EXPECTED_TRANSCRIPTS} transcripts, found {len(inputs)} in: {args.in_dir.resolve()}")
+        print(
+            f"Expected {EXPECTED_TRANSCRIPTS} transcripts, "
+            f"found {len(inputs)} in: {args.in_dir.resolve()}"
+        )
         return 2
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
