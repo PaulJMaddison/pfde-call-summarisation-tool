@@ -4,8 +4,7 @@ import argparse
 from pathlib import Path
 from typing import Protocol
 
-from dotenv import load_dotenv
-
+from call_summariser.env_loader import load_dotenv_if_available
 from call_summariser.optional_gating import validate_optional_sections_against_transcript
 from call_summariser.summariser import Summariser
 from call_summariser.summary_validator import repair_summary_minimally, validate_summary
@@ -21,13 +20,16 @@ class LLM(Protocol):
 def _enforce_output_count(out_dir: Path) -> int | None:
     written = len(list(out_dir.glob("*-summary.txt")))
     if written != EXPECTED_TRANSCRIPTS:
-        print(f"Expected {EXPECTED_TRANSCRIPTS} output files, wrote {written} in: {out_dir.resolve()}")
+        print(
+            f"Expected {EXPECTED_TRANSCRIPTS} output files, "
+            f"wrote {written} in: {out_dir.resolve()}"
+        )
         return 2
     return None
 
 
 def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
-    load_dotenv()
+    load_dotenv_if_available()
 
     p = argparse.ArgumentParser()
     p.add_argument("--in-dir", type=Path, required=True)
@@ -42,7 +44,10 @@ def main(argv: list[str] | None = None, *, llm: LLM | None = None) -> int:
         return 2
 
     if len(inputs) != EXPECTED_TRANSCRIPTS:
-        print(f"Expected {EXPECTED_TRANSCRIPTS} transcripts, found {len(inputs)} in: {args.in_dir.resolve()}")
+        print(
+            f"Expected {EXPECTED_TRANSCRIPTS} transcripts, "
+            f"found {len(inputs)} in: {args.in_dir.resolve()}"
+        )
         return 2
 
     args.out_dir.mkdir(parents=True, exist_ok=True)

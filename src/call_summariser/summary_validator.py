@@ -20,12 +20,38 @@ OPTIONAL_HEADER_LINES = [
     "Property:",
 ]
 
+ALLOWED_HEADER_LINES = set(REQUIRED_HEADER_LINES + OPTIONAL_HEADER_LINES)
+
 
 def _line_index(lines: list[str], target: str) -> int:
     for i, line in enumerate(lines):
         if line.strip() == target:
             return i
     return -1
+
+
+def _find_unknown_headers(lines: list[str]) -> list[str]:
+    unknown: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.endswith(":") and stripped and stripped not in ALLOWED_HEADER_LINES:
+            unknown.append(stripped)
+    return unknown
+
+
+def _extract_next_steps_lines(lines: list[str]) -> list[str]:
+    next_steps_idx = _line_index(lines, "Next Steps:")
+    if next_steps_idx == -1:
+        return []
+
+    section: list[str] = []
+    for line in lines[next_steps_idx + 1 :]:
+        stripped = line.strip()
+        if stripped in OPTIONAL_HEADER_LINES:
+            break
+        if stripped:
+            section.append(stripped)
+    return section
 
 
 def validate_summary(text: str, *, company_name: str, max_chars: int = 1500) -> None:
@@ -37,6 +63,10 @@ def validate_summary(text: str, *, company_name: str, max_chars: int = 1500) -> 
 
     lines = text.splitlines()
 
+    unknown_headers = _find_unknown_headers(lines)
+    if unknown_headers:
+        raise ValidationError(f"Unknown header(s) are not allowed: {', '.join(unknown_headers)}")
+
     indices = []
     for h in REQUIRED_HEADER_LINES:
         idx = _line_index(lines, h)
@@ -47,10 +77,13 @@ def validate_summary(text: str, *, company_name: str, max_chars: int = 1500) -> 
     if indices != sorted(indices):
         raise ValidationError("Required headers are out of order.")
 
-    expected_company = f"- {company_name}:"
-    if expected_company not in text:
-        raise ValidationError(f"Next Steps must include '{expected_company}'")
-    if "- Other:" not in text:
+    next_steps_lines = _extract_next_steps_lines(lines)
+    expected_company_prefix = f"- {company_name}:"
+
+    if not any(line.startswith(expected_company_prefix) for line in next_steps_lines):
+        raise ValidationError(f"Next Steps must include '{expected_company_prefix}'")
+
+    if not any(line.startswith("- Other:") for line in next_steps_lines):
         raise ValidationError("Next Steps must include '- Other:'")
 
     for h in OPTIONAL_HEADER_LINES:
@@ -64,55 +97,64 @@ def repair_summary_minimally(summary: str, *, company_name: str) -> str:
     We never invent call facts; we only add placeholder structure when missing.
     """
     s = summary.strip()
-
     lines = s.splitlines()
 
-    # --- Ensure Caller header exists ---
     if _line_index(lines, "Caller:") == -1:
         s = "Caller:\nUnknown, Unknown relationship, Inbound\n\n" + s
         lines = s.splitlines()
 
-    # --- Ensure Next Steps exists ---
-    if _line_index(lines, "Next Steps:") == -1:
+    next_steps_idx = _line_index(lines, "Next Steps:")
+    if next_steps_idx == -1:
         s += "\n\nNext Steps:\n"
         lines = s.splitlines()
+        next_steps_idx = _line_index(lines, "Next Steps:")
 
-    # --- Normalise Next Steps section ---
-    out: list[str] = []
-    in_next = False
+    optional_indices = [
+        i
+        for i, line in enumerate(lines)
+        if line.strip() in OPTIONAL_HEADER_LINES and i > next_steps_idx
+    ]
+    next_steps_end = min(optional_indices) if optional_indices else len(lines)
+
+    before = lines[: next_steps_idx + 1]
+    next_steps_body = lines[next_steps_idx + 1 : next_steps_end]
+    after = lines[next_steps_end:]
+
+    normalised_next_steps: list[str] = []
     found_company = False
     found_other = False
 
-    for line in lines:
-        if line.strip() == "Next Steps:":
-            in_next = True
-            out.append("Next Steps:")
+    for line in next_steps_body:
+        stripped = line.strip()
+        if not stripped:
+            normalised_next_steps.append(line)
             continue
 
-        if in_next:
-            # stop if new section
-            if any(line.strip() == h for h in OPTIONAL_HEADER_LINES):
-                in_next = False
+        if stripped.startswith(f"{company_name}:"):
+            normalised_next_steps.append(f"- {stripped}")
+            found_company = True
+            continue
 
-            stripped = line.strip()
+        if stripped.startswith(f"- {company_name}:"):
+            found_company = True
+            normalised_next_steps.append(line)
+            continue
 
-            if stripped.startswith(f"{company_name}:"):
-                found_company = True
-                out.append(f"- {stripped}")
-                continue
+        if stripped.startswith("Other:"):
+            normalised_next_steps.append(f"- {stripped}")
+            found_other = True
+            continue
 
-            if stripped.startswith("Other:"):
-                found_other = True
-                out.append(f"- {stripped}")
-                continue
+        if stripped.startswith("- Other:"):
+            found_other = True
 
-        out.append(line)
+        normalised_next_steps.append(line)
 
-    # --- Add missing required bullets ---
     if not found_company:
-        out.append(f"- {company_name}: None")
+        normalised_next_steps.append(f"- {company_name}: None")
 
     if not found_other:
-        out.append("- Other: None")
+        normalised_next_steps.append("- Other: None")
 
-    return "\n".join(out) + "\n"
+    repaired_lines = before + normalised_next_steps + after
+    return "\n".join(repaired_lines).rstrip() + "\n"
