@@ -1,160 +1,97 @@
 from __future__ import annotations
 
+from call_summariser.errors import SummaryValidationError
+from call_summariser.prompting import OPTIONAL_HEADERS, REQUIRED_HEADERS
 
-class ValidationError(ValueError):
-    pass
-
-
-REQUIRED_HEADER_LINES = [
-    "Caller:",
-    "Subject:",
-    "Executive Summary:",
-    "Next Steps:",
-]
-
-OPTIONAL_HEADER_LINES = [
-    "Liability Summary:",
-    "Negotiation Summary:",
-    "Vehicle Damage:",
-    "Injury:",
-    "Property:",
-]
-
-ALLOWED_HEADER_LINES = set(REQUIRED_HEADER_LINES + OPTIONAL_HEADER_LINES)
+ALLOWED_HEADERS = frozenset((*REQUIRED_HEADERS, *OPTIONAL_HEADERS))
 
 
-def _line_index(lines: list[str], target: str) -> int:
-    for i, line in enumerate(lines):
-        if line.strip() == target:
-            return i
-    return -1
+def _indices(lines: list[str], header: str) -> list[int]:
+    return [index for index, line in enumerate(lines) if line.strip() == header]
 
 
-def _find_unknown_headers(lines: list[str]) -> list[str]:
-    unknown: list[str] = []
-    for line in lines:
+def _section_body(lines: list[str], header_index: int) -> list[str]:
+    body: list[str] = []
+    for line in lines[header_index + 1 :]:
         stripped = line.strip()
-        if stripped.endswith(":") and stripped and stripped not in ALLOWED_HEADER_LINES:
-            unknown.append(stripped)
-    return unknown
-
-
-def _extract_next_steps_lines(lines: list[str]) -> list[str]:
-    next_steps_idx = _line_index(lines, "Next Steps:")
-    if next_steps_idx == -1:
-        return []
-
-    section: list[str] = []
-    for line in lines[next_steps_idx + 1 :]:
-        stripped = line.strip()
-        if stripped in OPTIONAL_HEADER_LINES:
+        if stripped in ALLOWED_HEADERS:
             break
         if stripped:
-            section.append(stripped)
-    return section
+            body.append(stripped)
+    return body
 
 
 def validate_summary(text: str, *, company_name: str, max_chars: int = 1500) -> None:
-    if text.strip().startswith("#"):
-        raise ValidationError("Markdown headers are not allowed.")
-
+    if not isinstance(text, str) or not text.strip():
+        raise SummaryValidationError("Summary is empty.")
+    if max_chars <= 0:
+        raise ValueError("max_chars must be greater than zero.")
     if len(text) > max_chars:
-        raise ValidationError(f"Summary exceeds {max_chars} characters (got {len(text)}).")
+        raise SummaryValidationError(
+            f"Summary exceeds {max_chars} characters (got {len(text)})."
+        )
+    if "```" in text:
+        raise SummaryValidationError("Code fences are not allowed.")
 
     lines = text.splitlines()
-
-    unknown_headers = _find_unknown_headers(lines)
-    if unknown_headers:
-        raise ValidationError(f"Unknown header(s) are not allowed: {', '.join(unknown_headers)}")
-
-    indices = []
-    for h in REQUIRED_HEADER_LINES:
-        idx = _line_index(lines, h)
-        if idx == -1:
-            raise ValidationError(f"Missing required header line: {h}")
-        indices.append(idx)
-
-    if indices != sorted(indices):
-        raise ValidationError("Required headers are out of order.")
-
-    next_steps_lines = _extract_next_steps_lines(lines)
-    expected_company_prefix = f"- {company_name}:"
-
-    if not any(line.startswith(expected_company_prefix) for line in next_steps_lines):
-        raise ValidationError(f"Next Steps must include '{expected_company_prefix}'")
-
-    if not any(line.startswith("- Other:") for line in next_steps_lines):
-        raise ValidationError("Next Steps must include '- Other:'")
-
-    for h in OPTIONAL_HEADER_LINES:
-        if h in text and _line_index(lines, h) == -1:
-            raise ValidationError(f"Optional header '{h}' must appear as its own line.")
-
-
-def repair_summary_minimally(summary: str, *, company_name: str) -> str:
-    """
-    Make *minimal* safe edits so near-miss LLM outputs don't fail validation.
-    We never invent call facts; we only add placeholder structure when missing.
-    """
-    s = summary.strip()
-    lines = s.splitlines()
-
-    if _line_index(lines, "Caller:") == -1:
-        s = "Caller:\nUnknown, Unknown relationship, Inbound\n\n" + s
-        lines = s.splitlines()
-
-    next_steps_idx = _line_index(lines, "Next Steps:")
-    if next_steps_idx == -1:
-        s += "\n\nNext Steps:\n"
-        lines = s.splitlines()
-        next_steps_idx = _line_index(lines, "Next Steps:")
-
-    optional_indices = [
-        i
-        for i, line in enumerate(lines)
-        if line.strip() in OPTIONAL_HEADER_LINES and i > next_steps_idx
-    ]
-    next_steps_end = min(optional_indices) if optional_indices else len(lines)
-
-    before = lines[: next_steps_idx + 1]
-    next_steps_body = lines[next_steps_idx + 1 : next_steps_end]
-    after = lines[next_steps_end:]
-
-    normalised_next_steps: list[str] = []
-    found_company = False
-    found_other = False
-
-    for line in next_steps_body:
+    for line in lines:
         stripped = line.strip()
-        if not stripped:
-            normalised_next_steps.append(line)
-            continue
+        if stripped.startswith("#"):
+            raise SummaryValidationError("Markdown headings are not allowed.")
+        if (
+            stripped.endswith(":")
+            and not stripped.startswith("-")
+            and stripped not in ALLOWED_HEADERS
+        ):
+            raise SummaryValidationError(f"Unknown header is not allowed: {stripped}")
 
-        if stripped.startswith(f"{company_name}:"):
-            normalised_next_steps.append(f"- {stripped}")
-            found_company = True
-            continue
+    required_positions: list[int] = []
+    for header in REQUIRED_HEADERS:
+        positions = _indices(lines, header)
+        if len(positions) != 1:
+            raise SummaryValidationError(
+                f"Required header '{header}' must appear exactly once."
+            )
+        required_positions.append(positions[0])
 
-        if stripped.startswith(f"- {company_name}:"):
-            found_company = True
-            normalised_next_steps.append(line)
-            continue
+    if required_positions != sorted(required_positions):
+        raise SummaryValidationError("Required headers are out of order.")
 
-        if stripped.startswith("Other:"):
-            normalised_next_steps.append(f"- {stripped}")
-            found_other = True
-            continue
+    for header in OPTIONAL_HEADERS:
+        positions = _indices(lines, header)
+        if len(positions) > 1:
+            raise SummaryValidationError(f"Optional header '{header}' appears more than once.")
+        if positions and positions[0] < required_positions[-1]:
+            raise SummaryValidationError(
+                f"Optional header '{header}' must appear after 'Next Steps:'."
+            )
 
-        if stripped.startswith("- Other:"):
-            found_other = True
+    for header, position in zip(REQUIRED_HEADERS, required_positions, strict=True):
+        if not _section_body(lines, position):
+            raise SummaryValidationError(f"Required section '{header}' is empty.")
 
-        normalised_next_steps.append(line)
+    for header in OPTIONAL_HEADERS:
+        positions = _indices(lines, header)
+        if positions and not _section_body(lines, positions[0]):
+            raise SummaryValidationError(f"Optional section '{header}' is empty.")
 
-    if not found_company:
-        normalised_next_steps.append(f"- {company_name}: None")
+    next_steps = _section_body(lines, required_positions[-1])
+    company_prefix = f"- {company_name}:"
+    company_lines = [line for line in next_steps if line.startswith(company_prefix)]
+    other_lines = [line for line in next_steps if line.startswith("- Other:")]
+    if len(company_lines) != 1:
+        raise SummaryValidationError(
+            f"Next Steps must contain exactly one '{company_prefix}' action line."
+        )
+    if len(other_lines) != 1:
+        raise SummaryValidationError(
+            "Next Steps must contain exactly one '- Other:' action line."
+        )
 
-    if not found_other:
-        normalised_next_steps.append("- Other: None")
-
-    repaired_lines = before + normalised_next_steps + after
-    return "\n".join(repaired_lines).rstrip() + "\n"
+    unexpected_actions = [
+        line
+        for line in next_steps
+        if line.startswith("-") and line not in (*company_lines, *other_lines)
+    ]
+    if unexpected_actions:
+        raise SummaryValidationError("Next Steps contains an unsupported action line.")

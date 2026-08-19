@@ -1,37 +1,48 @@
+import pytest
+
+from call_summariser.errors import TranscriptParseError
 from call_summariser.transcript_parser import parse_transcript
 
 
-def test_parse_transcript_extracts_metadata_and_lines():
-    raw = """Caller: John Doe
-Direction: Inbound
-Claimant: Jane Doe
+def test_parses_realistic_tsv_export():
+    raw = """Interaction Type:\tCall
+Interaction ID:\tABC-001
+Direction:\tInbound
 
-[00:00] AGENT: Hello, you're through to PFDE.
-[00:03] CALLER: Hi, I'm calling about a crash yesterday.
+Date/Time\tParticipant Type\tParticipant\tText
+00:02\tInternal\tSarah Mitchell\tGood morning, claims team.
+00:06\tExternal\tUnavailable\tHi, my name is David Chen.
 """
-    t = parse_transcript(raw)
+    transcript = parse_transcript(raw)
 
-    assert t.metadata["Caller"] == "John Doe"
-    assert t.metadata["Direction"] == "Inbound"
-    assert len(t.lines) == 2
-    assert t.lines[0].timestamp == "00:00"
-    assert t.lines[0].speaker == "AGENT"
-    assert "PFDE" in t.lines[0].text
-
-
-def test_parse_transcript_tolerates_missing_metadata_block():
-    raw = "[00:00] CALLER: Hello\n"
-    t = parse_transcript(raw)
-    assert t.metadata == {}
-    assert len(t.lines) == 1
+    assert transcript.metadata["Interaction Type"] == "Call"
+    assert transcript.metadata["Interaction ID"] == "ABC-001"
+    assert transcript.metadata["Direction"] == "Inbound"
+    assert len(transcript.lines) == 2
+    assert transcript.lines[0].timestamp == "00:02"
+    assert transcript.lines[0].speaker == "Sarah Mitchell"
+    assert transcript.lines[1].text == "Hi, my name is David Chen."
 
 
-def test_parse_transcript_tolerates_malformed_body_lines_by_appending():
-    raw = """Caller: X
+def test_parses_bracket_format_and_continuations():
+    raw = """Direction: Outbound
 
-[00:00] CALLER: First line
-this is a continuation
+[00:00] AGENT: First line
+continued sentence
+[00:03] CALLER: Reply
 """
-    t = parse_transcript(raw)
-    assert len(t.lines) == 1
-    assert "continuation" in t.lines[0].text
+    transcript = parse_transcript(raw)
+    assert transcript.metadata == {"Direction": "Outbound"}
+    assert len(transcript.lines) == 2
+    assert transcript.lines[0].text == "First line continued sentence"
+
+
+def test_handles_utf8_bom_and_null_characters():
+    transcript = parse_transcript("\ufeff[00:00] CALLER: Hel\x00lo\n")
+    assert transcript.lines[0].text == "Hello"
+
+
+@pytest.mark.parametrize("raw", ["", "   \n", "Caller: Nobody\nDirection: Inbound\n"])
+def test_rejects_inputs_without_dialogue(raw):
+    with pytest.raises(TranscriptParseError):
+        parse_transcript(raw)

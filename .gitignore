@@ -1,14 +1,35 @@
-.vs/
-*.suo
-*.user
-*.userosscache
-*.sln.docstates
-.env
-.venv/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Packaging
+build/
+dist/
 *.egg-info/
-tests/__pycache__/test_summary_validator.cpython-313-pytest-9.0.2.pyc
-*.egg-info/
-*.egg-info/
-src/call_summariser.egg-info/SOURCES.txt
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Generated summaries
+outputs/
+*-summary.txt
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

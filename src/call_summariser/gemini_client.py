@@ -4,124 +4,151 @@ import os
 import random
 import re
 import time
-from dataclasses import dataclass
+from collections.abc import Callable
+from typing import Any
 
-from google import genai  # type: ignore[import-not-found]
+from call_summariser.errors import ConfigurationError
+
+_RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 
-@dataclass(frozen=True)
 class GeminiLLM:
-    model: str = "gemini-3-flash-preview"
-    max_attempts: int = 4
-    timeout_s: float = 30.0  # soft timeout per request
+    """Small resilient adapter around the Google Gen AI Python SDK."""
 
-    def __post_init__(self) -> None:
-        if not os.getenv("GEMINI_API_KEY"):
-            raise RuntimeError("GEMINI_API_KEY is not set (use env var or .env).")
+    def __init__(
+        self,
+        *,
+        model: str,
+        api_key: str | None = None,
+        max_attempts: int = 4,
+        timeout_s: float = 30.0,
+        client: Any | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        model = model.strip()
+        if not model:
+            raise ConfigurationError("A Gemini model name is required.")
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1.")
+        if timeout_s <= 0:
+            raise ValueError("timeout_s must be greater than zero.")
 
-    def _debug(self, msg: str) -> None:
-        if os.getenv("GEMINI_DEBUG") == "1":
-            print(f"[GeminiLLM] {msg}", flush=True)
+        self.model = model
+        self.max_attempts = max_attempts
+        self.timeout_s = timeout_s
+        self._sleep = sleep
 
-    def _is_retryable(self, err: BaseException) -> bool:
-        s = str(err)
-        # Common transient classes/messages:
-        # - 429 RESOURCE_EXHAUSTED (rate limit / quota)
-        # - 503 Service Unavailable
-        # - network-ish timeouts
-        if "RESOURCE_EXHAUSTED" in s or "429" in s:
-            return True
-        if "503" in s or "ServiceUnavailable" in s or "SERVICE_UNAVAILABLE" in s:
-            return True
-        if "Timeout" in s or "timed out" in s or "timeout" in s:
-            return True
-        if "Connection" in s or "connection" in s:
-            return True
-        return False
+        if client is not None:
+            self._client = client
+            return
 
-    def _extract_retry_after_seconds(self, err: BaseException) -> float | None:
-        """
-        Gemini sometimes returns a JSON-ish blob including:
-          'retryDelay': '47s'
-        or text like:
-          'Please retry in 47.5163s'
-        We try to parse that and sleep accordingly.
-        """
-        s = str(err)
+        resolved_api_key = (api_key or os.getenv("GEMINI_API_KEY", "")).strip()
+        if not resolved_api_key:
+            raise ConfigurationError(
+                "GEMINI_API_KEY is not set. Set it in the environment or a local .env file."
+            )
 
-        # 1) Parse "Please retry in 47.516s"
-        m = re.search(r"retry in ([0-9]+(?:\.[0-9]+)?)s", s, re.IGNORECASE)
-        if m:
-            return float(m.group(1))
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as exc:
+            raise ConfigurationError(
+                "The Google Gen AI SDK is not installed. Install the package dependencies first."
+            ) from exc
 
-        # 2) Parse JSON-ish 'retryDelay': '47s'
-        m = re.search(r"retryDelay'\s*:\s*'(\d+)s'", s)
-        if m:
-            return float(m.group(1))
+        self._client = genai.Client(
+            api_key=resolved_api_key,
+            http_options=types.HttpOptions(timeout=max(1, int(timeout_s * 1000))),
+        )
 
-        # 3) Try to parse a JSON dict if present (best-effort)
-        # Sometimes string contains "{'error': {...}}" which isn't strict JSON.
-        # We'll just attempt very conservatively:
+    @staticmethod
+    def _status_code(error: BaseException) -> int | None:
+        for attribute in ("status_code", "code"):
+            value = getattr(error, attribute, None)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str) and value.isdigit():
+                return int(value)
         return None
 
-    def _call_gemini_once(self, prompt: str) -> str:
-        # IMPORTANT: do NOT pass unsupported kwargs like request_options here.
-        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        resp = client.models.generate_content(model=self.model, contents=prompt)
+    @classmethod
+    def _is_retryable(cls, error: BaseException) -> bool:
+        status = cls._status_code(error)
+        if status is not None:
+            return status in _RETRYABLE_STATUS_CODES
 
-        text = getattr(resp, "text", None)
-        if not text:
-            raise RuntimeError("Gemini returned no text.")
+        message = str(error).casefold()
+        return any(
+            marker in message
+            for marker in (
+                "resource_exhausted",
+                "service_unavailable",
+                "timed out",
+                "timeout",
+                "connection reset",
+                "connection error",
+                "temporarily unavailable",
+            )
+        )
+
+    @staticmethod
+    def _retry_after_seconds(error: BaseException) -> float | None:
+        response = getattr(error, "response", None)
+        headers = getattr(response, "headers", None)
+        if headers is not None:
+            try:
+                value = headers.get("retry-after")
+                if value is not None:
+                    return max(0.0, float(value))
+            except (AttributeError, TypeError, ValueError):
+                pass
+
+        message = str(error)
+        patterns = (
+            r"retry\s+in\s+([0-9]+(?:\.[0-9]+)?)s",
+            r"retryDelay[\"']?\s*:\s*[\"']?([0-9]+(?:\.[0-9]+)?)s",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, message, re.IGNORECASE)
+            if match:
+                return float(match.group(1))
+        return None
+
+    def _call_once(self, prompt: str) -> str:
+        response = self._client.models.generate_content(model=self.model, contents=prompt)
+        text = getattr(response, "text", None)
+        if not isinstance(text, str) or not text.strip():
+            raise RuntimeError("Gemini returned an empty text response.")
         return text
 
     def generate(self, prompt: str) -> str:
-        """
-        Retries with backoff on transient errors.
-        Uses a SOFT timeout: if Gemini hangs, we stop waiting and retry.
-        """
-        import concurrent.futures
+        if not prompt.strip():
+            raise ValueError("prompt must not be empty.")
 
-        last_err: BaseException | None = None
-
+        last_error: BaseException | None = None
         for attempt in range(1, self.max_attempts + 1):
-            start = time.time()
-            self._debug(f"attempt {attempt}/{self.max_attempts}")
-
             try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                    fut = ex.submit(self._call_gemini_once, prompt)
-                    text = fut.result(timeout=self.timeout_s)
-
-                elapsed = time.time() - start
-                self._debug(f"success (elapsed {elapsed:.2f}s)")
-                return text
-
-            except concurrent.futures.TimeoutError:
-                last_err = TimeoutError(f"Gemini call timed out after {self.timeout_s}s")
-                self._debug(str(last_err))
-
-            except Exception as e:  # noqa: BLE001
-                last_err = e
-                self._debug(f"error: {type(e).__name__}: {e}")
-
-                if not self._is_retryable(e):
+                return self._call_once(prompt)
+            except Exception as exc:  # noqa: BLE001 - SDK error types vary by release
+                last_error = exc
+                if not self._is_retryable(exc) or attempt == self.max_attempts:
                     raise
 
-            # If we're here, we are retrying
-            if attempt < self.max_attempts:
-                retry_after = self._extract_retry_after_seconds(last_err) if last_err else None
+                retry_after = self._retry_after_seconds(exc)
+                if retry_after is None:
+                    retry_after = min(1.5 ** (attempt - 1) + random.uniform(0.0, 0.5), 15.0)
+                self._sleep(min(retry_after, 60.0))
 
-                # backoff: either respect retry_after, or exponential + jitter
-                if retry_after is not None:
-                    sleep_s = min(retry_after, 60.0)  # cap
-                    # add small jitter so we don't thundering-herd
-                    sleep_s += random.uniform(0.0, 0.5)
-                else:
-                    base = 1.5 ** (attempt - 1)  # 1, 1.5, 2.25, 3.375...
-                    sleep_s = min(base + random.uniform(0.0, 0.5), 15.0)
+        assert last_error is not None
+        raise last_error
 
-                self._debug(f"sleeping {sleep_s:.2f}s before retry")
-                time.sleep(sleep_s)
+    def close(self) -> None:
+        close = getattr(self._client, "close", None)
+        if callable(close):
+            close()
 
-        assert last_err is not None
-        raise last_err
+    def __enter__(self) -> GeminiLLM:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.close()

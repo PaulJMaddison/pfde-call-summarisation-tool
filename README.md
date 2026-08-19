@@ -1,280 +1,218 @@
-# PFDE Call Summarisation Tool
+# Call Summariser
 
-A Python-based command line tool that generates **structured insurance call summaries** from raw transcripts using an LLM (Google Gemini), with **strict validation**, **conditional section gating**, and **retry/repair logic** to ensure outputs meet required business constraints.
+Call Summariser is an open-source Python CLI that turns insurance call transcripts into concise, validated operational summaries using Google Gemini.
 
-The pipeline:
+It is designed for batch workflows where output shape matters: transcripts are parsed locally, Gemini generates the summary, and deterministic validation rejects malformed output before anything is written.
 
-- Parses noisy speech-to-text transcripts
-- Builds a structured prompt
-- Calls an LLM
-- Validates **format/order**, **required sections**, and **≤ 1,500 chars**
-- Enforces that optional sections appear **only if supported by transcript content**
-- Writes one `*-summary.txt` output per transcript
+## Features
 
-A **“golden check”** script is provided to run the full pipeline across the 10 evaluation transcripts and fail fast if any output is non-compliant.
+- Parses tab-separated contact-centre exports and `[timestamp] SPEAKER: text` transcripts.
+- Preserves transcript metadata such as direction and interaction identifiers for model context.
+- Treats transcript content as untrusted data to reduce prompt-injection risk.
+- Enforces required summary sections, ordering, action lines, and a configurable character limit.
+- Retries malformed model output with the previous output and exact validation failure supplied as correction context.
+- Uses the Gemini SDK's real HTTP timeout support plus bounded retries for transient failures.
+- Processes transcript batches independently so one bad file does not discard successful work.
+- Writes summaries atomically to avoid leaving truncated files behind.
+- Supports overwrite protection and per-file input-size limits.
+- Ships with type checking, linting, coverage, packaging checks, and CI across supported Python versions.
 
----
+## Requirements
 
-## Project Structure
+- Python 3.11+
+- A Google Gemini API key
+- A currently available Gemini text model for your account/project
 
-```
-src/
-  call_summariser/
-    __main__.py
-    cli.py
-    gemini_client.py
-    golden_check.py
-    optional_gating.py
-    prompting.py
-    run_result.py
-    summariser.py
-    summary_validator.py
-    transcript_parser.py
-tests/
-tools/
-  golden_check.py
-outputs/
-pyproject.toml
+Model names change over time, so the tool deliberately does not hard-code a model that may later be retired. Configure the model you want to operate explicitly.
+
+## Installation
+
+Clone the repository and install it into a virtual environment:
+
+```bash
+python -m venv .venv
 ```
 
----
-
-## Setup
-
-### 1) Create and activate a virtual environment
-
-Windows (PowerShell):
+Windows PowerShell:
 
 ```powershell
-python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python -m pip install -e .
 ```
 
 macOS/Linux:
 
 ```bash
-python -m venv .venv
 source .venv/bin/activate
+python -m pip install -e .
 ```
 
-### 2) Install (editable mode) + dev dependencies
+For development tooling:
 
 ```bash
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 ```
 
----
+## Configuration
 
-## Configure Gemini API Key
-
-Create a `.env` file in the repository root:
+Copy `.env.example` to `.env` and set:
 
 ```dotenv
-GEMINI_API_KEY=your_api_key_here
+GEMINI_API_KEY=your_api_key
+CALL_SUMMARISER_MODEL=your_available_gemini_text_model
+CALL_SUMMARISER_COMPANY_NAME=Your Company
 ```
 
-- The `.env` file is ignored via `.gitignore` and must not be committed.
-- Alternatively you can set `GEMINI_API_KEY` as an environment variable.
+Environment variables already set by the host process take precedence over `.env` values.
 
----
+`--model` and `--company-name` can also be supplied directly on the command line and override the corresponding defaults used by the CLI.
 
-## Running Unit Tests
+## Usage
+
+Process every `.txt` transcript in a directory:
 
 ```bash
-python -m pytest
+call-summariser \
+  --in-dir transcripts \
+  --out-dir outputs \
+  --company-name "Acme Insurance" \
+  --model "YOUR_GEMINI_MODEL"
 ```
 
-All tests are deterministic and use injected/mocked LLM behaviour (no real Gemini calls).
-
----
-
-## Running the CLI (Generate Summaries)
-
-To generate summaries from a directory of transcripts:
+The same command can be run without installing the console entry point:
 
 ```bash
-python -m call_summariser --in-dir "Transcripts to Summarise" --out-dir outputs --company-name COMPANY_NAME
+python -m call_summariser --in-dir transcripts --out-dir outputs --company-name "Acme Insurance" --model "YOUR_GEMINI_MODEL"
 ```
 
-Or, after installation, via the console entrypoint:
+Useful controls:
 
-```bash
-call-summariser --in-dir "Transcripts to Summarise" --out-dir outputs --company-name COMPANY_NAME
+```text
+--max-chars N          Maximum generated summary length (default: 1500)
+--summary-attempts N   Attempts to repair structurally invalid model output (default: 3)
+--request-attempts N   Attempts for transient Gemini/API failures (default: 4)
+--request-timeout S    HTTP request timeout in seconds (default: 30)
+--max-input-bytes N    Maximum size of each transcript file (default: 5000000)
+--no-overwrite         Keep existing output files and skip them
 ```
 
-- Summaries are written to `outputs/` as `*-summary.txt`.
-- You can override the model with `--model` if desired.
+The command returns `0` when all files succeed, `1` when a batch completes with one or more per-file failures, and `2` for configuration or batch-level errors.
 
----
+## Supported transcript formats
 
-## Golden Integration Check (Required Pre-Submission)
+### Tab-separated contact-centre export
 
-This runs the full pipeline over the 10 transcripts and:
+```text
+Interaction Type:    Call
+Interaction ID:      EXAMPLE-001
+Direction:           Inbound
 
-- Validates header structure and order
-- Enforces the 1,500 character limit
-- Verifies optional sections are supported by transcript content
-- Ensures `Next Steps` formatting (`- COMPANY_NAME:` and `- Other:`)
-- Applies minimal safe repair for common near-miss outputs before validation
-- Reports which transcripts required retries
-- Fails if any summary is invalid or if not all 10 outputs are written
-
-### Run (recommended command)
-
-This command explicitly invokes the **refactored** golden check in `src/call_summariser/golden_check.py`:
-
-```bash
-python -c "from call_summariser.golden_check import main; import sys; raise SystemExit(main(sys.argv[1:]))" --in-dir "Transcripts to Summarise" --out-dir outputs --company-name COMPANY_NAME
+Date/Time    Participant Type    Participant    Text
+00:01        Internal            Alex Morgan    Good morning, claims team. How can I help?
+00:05        External            Jamie Taylor   I am calling for an update on claim CLM-12345.
 ```
 
-(You may still have `tools/golden_check.py`, but the command above guarantees you are using the up-to-date golden check implementation in `src/`.)
+Tabs, rather than spaces, separate the fields in the actual file. See `examples/example-transcript.txt` for a ready-to-copy example.
 
-A successful run prints:
+### Bracketed transcript
 
+```text
+Direction: Inbound
+
+[00:01] AGENT: Good morning, claims team. How can I help?
+[00:05] CALLER: I am calling for an update on claim CLM-12345.
 ```
-Golden check PASSED: all transcripts summarised and validated.
+
+Continuation lines without a new timestamp are appended to the preceding utterance.
+
+## Output contract
+
+Every accepted summary contains these required sections in order:
+
+```text
+Caller:
+...
+Subject:
+...
+Executive Summary:
+...
+Next Steps:
+- Your Company: ...
+- Other: ...
 ```
 
----
+The following sections may appear after `Next Steps:` when materially relevant:
 
-## Constraints Enforced
+```text
+Liability Summary:
+Negotiation Summary:
+Vehicle Damage:
+Injury:
+Property:
+```
 
-Generated summaries must:
+Validation ensures that required headers appear exactly once, optional headers are not duplicated, sections are non-empty, no unsupported headers are introduced, `Next Steps` has exactly the two required action lines, and the configured character limit is respected.
 
-- Use exact required headers as whole lines, in this order:
-  - `Caller:`
-  - `Subject:`
-  - `Executive Summary:`
-  - `Next Steps:`
-- Be **≤ 1500 characters** total
-- Include **both** Next Steps lines:
-  - `- COMPANY_NAME: ...`
-  - `- Other: ...` (or `None`)
-- Include optional sections **only if supported by the transcript**:
-  - `Liability Summary:`
-  - `Negotiation Summary:`
-  - `Vehicle Damage:`
-  - `Injury:`
-  - `Property:`
-- Contain no markdown and no extra headers
-- Avoid inventing unknown details (use `Unknown` where appropriate)
+Semantic truth still depends on the selected model. The prompt explicitly prohibits invention and the runtime rejects structural failures, but deterministic code cannot prove that every model-generated statement is factually correct. Human or downstream policy review remains appropriate for high-impact decisions.
 
----
+## Failure handling
 
-## Linting
+API retries and summary-repair retries are deliberately separate:
 
-Run Ruff:
+1. Gemini transport failures such as rate limiting, transient server errors, and timeouts use bounded backoff.
+2. A successful model response that violates the summary contract is retried with the exact validation error and previous output.
+3. If one transcript still fails, the batch records that failure and continues with the remaining files.
+4. A summary is written through a temporary file and atomically replaced only after generation succeeds.
+
+This avoids a network retry being confused with a bad model response and prevents one transcript from invalidating an otherwise successful batch.
+
+## Security and privacy
+
+Transcript text is sent to the configured Gemini service. Before using this tool with real customer data, ensure that your organisation's data-processing, retention, residency, consent, and provider agreements permit that transfer.
+
+The prompt tells the model not to reproduce authentication-only or highly sensitive verification data such as passwords, security answers, full dates of birth, payment-card numbers, or bank details. That is a defence-in-depth measure, not a substitute for upstream redaction or a formal data-loss-prevention policy.
+
+Never commit API keys. `.env` and generated output files are ignored by Git.
+
+For reporting security issues, see `SECURITY.md`.
+
+## Development
+
+Run the quality gate locally:
 
 ```bash
 ruff check .
+mypy
+pytest --cov=call_summariser --cov-report=term-missing
+python -m build
 ```
 
-Auto-fix where possible:
+CI runs the same core checks on Python 3.11, 3.12, and 3.13.
 
-```bash
-ruff check . --fix
+## Architecture
+
+```text
+text file
+   |
+   v
+transcript_parser.py
+   |
+   v
+prompting.py -> GeminiLLM -> generated text
+                         |
+                         v
+                 summary_validator.py
+                         |
+                         v
+                    atomic output
 ```
 
----
+The `Summariser` depends on a small `LLM` protocol rather than the Gemini SDK directly. This keeps generation policy independent from transport and makes alternative providers straightforward to add without rewriting parsing or validation.
 
-## Pre-Submission Checklist
+## Contributing
 
-```bash
-python -m pytest
-ruff check .
-python -c "from call_summariser.golden_check import main; import sys; raise SystemExit(main(sys.argv[1:]))" --in-dir "Transcripts to Summarise" --out-dir outputs --company-name COMPANY_NAME
-```
+Issues and pull requests are welcome. See `CONTRIBUTING.md` for the local quality requirements and contribution workflow.
 
-All commands should pass without errors, and `outputs/` should contain 10 `*-summary.txt` files.
+## Licence
 
----
-
-## Evaluation Criteria Used to Assess Solution Quality
-
-During development, each generated summary was assessed against the five specified quality checks:
-
-1. **Issue Identification & Actions Taken**
-   - Summary clearly captures why the call happened and what was done.
-
-2. **Accuracy of Critical Facts**
-   - Prompt instructs no invention.
-   - Optional sections are gated against the transcript to reduce hallucination risk.
-   - Unknowns are recorded as `Unknown`.
-
-3. **Operational Handover Readiness**
-   - Mandatory `Next Steps` always includes both company and other-party actions.
-
-4. **Professional Tone**
-   - Prompt prohibits markdown and informal content; outputs are suitable for customer visibility.
-
-5. **Character Limit Compliance (≤ 1,500)**
-   - Automated validation rejects oversize outputs; retry path requests more concise rewrites.
-
-These checks are enforced programmatically in `summary_validator.py` and `optional_gating.py` to reduce format drift and unsupported content.
-
----
-
-## Trade-off Analysis for Key Decisions
-
-- **Strict validation vs throughput**
-  - Exact headers/order improves downstream reliability.
-  - Can increase retries under free-tier quotas.
-  - Mitigated with minimal local repair for near-miss outputs.
-
-- **Retry attempts**
-  - `max_attempts` is capped to prevent infinite loops and control cost/quota usage.
-  - Golden check uses a conservative attempt count to reduce quota burn.
-
-- **Prompt engineering vs post-processing**
-  - Prompt drives most correctness.
-  - Lightweight repair is used to fix structural near-misses without inventing facts.
-
-- **Raw API calls vs framework**
-  - Direct SDK usage keeps dependencies minimal and behaviour explicit.
-  - Layering keeps the LLM boundary mockable for tests.
-
----
-
-## Production Deployment Considerations
-
-- **Rate limiting & backoff**
-  - Implement exponential backoff for 429/503.
-  - Use queue-based processing to avoid burst limits.
-
-- **Observability**
-  - Log attempts per transcript, validation failures, and gating outcomes.
-
-- **Configuration**
-  - Externalise model name, company name, max attempts, and char limits.
-
-- **Security**
-  - API keys via env vars / `.env`, excluded from Git.
-
-- **Scalability**
-  - Parallelise transcript processing via workers, cache successful outputs, and avoid reprocessing.
-
----
-
-## Demonstration of Edge Case Handling
-
-The system explicitly handles:
-
-- **Missing/malformed required headers**
-  - Validation fails with clear error messages.
-
-- **Unsupported optional sections**
-  - Optional sections are validated against transcript content (reduces hallucinated sections).
-
-- **Unknown caller relationship/direction**
-  - Prompt and repair logic use safe placeholders rather than inventing facts.
-
-- **Transcript noise (STT artefacts)**
-  - Parser tolerates fragmented lines and encoding artefacts.
-
-- **Partial output writes**
-  - Golden check fails if fewer than 10 outputs are written.
-
-- **Character limit exceeded**
-  - Validation rejects oversize outputs; retry path asks the model to rewrite concisely.
-
----
+MIT. See `LICENSE`.

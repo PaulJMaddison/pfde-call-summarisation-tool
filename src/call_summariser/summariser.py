@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from call_summariser.optional_gating import validate_optional_sections_against_transcript
-from call_summariser.prompting import build_prompt
+from call_summariser.errors import SummaryGenerationError, SummaryValidationError
+from call_summariser.prompting import build_prompt, build_retry_prompt
 from call_summariser.run_result import RunResult
-from call_summariser.summary_validator import ValidationError, validate_summary
+from call_summariser.summary_validator import validate_summary
 from call_summariser.transcript_parser import Transcript
 
 
@@ -14,32 +14,63 @@ class LLM(Protocol):
     def generate(self, prompt: str) -> str: ...
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Summariser:
     llm: LLM
     company_name: str
-    max_attempts: int = 2
+    max_attempts: int = 3
+    max_chars: int = 1500
 
-    def summarise_with_result(self, t: Transcript) -> RunResult:
-        transcript_text = "\n".join(f"{line.speaker}: {line.text}" for line in t.lines)
-        prompt = build_prompt(t, company_name=self.company_name)
+    def __post_init__(self) -> None:
+        company_name = self.company_name.strip()
+        if not company_name:
+            raise ValueError("company_name must not be empty.")
+        if "\n" in company_name or "\r" in company_name:
+            raise ValueError("company_name must be a single line.")
+        if self.max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1.")
+        if self.max_chars < 200:
+            raise ValueError("max_chars must be at least 200.")
+        object.__setattr__(self, "company_name", company_name)
 
-        last_err: Exception | None = None
-        for attempt_num in range(1, self.max_attempts + 1):
-            out = (self.llm.generate(prompt) or "").strip() + "\n"
+    def summarise_with_result(self, transcript: Transcript) -> RunResult:
+        if not transcript.lines:
+            raise ValueError("Transcript contains no dialogue lines.")
+
+        base_prompt = build_prompt(
+            transcript,
+            company_name=self.company_name,
+            max_chars=self.max_chars,
+        )
+        prompt = base_prompt
+        last_error: SummaryValidationError | None = None
+
+        for attempt in range(1, self.max_attempts + 1):
+            generated = self.llm.generate(prompt)
+            output = (generated or "").strip()
+            if output:
+                output += "\n"
+
             try:
-                validate_summary(out, company_name=self.company_name)
-                validate_optional_sections_against_transcript(out, transcript_text)
-                return RunResult(summary=out, attempts_used=attempt_num)
-            except (ValidationError, ValueError) as e:
-                last_err = e
-                prompt = (
-                    prompt
-                    + f"\nThe previous output violated constraints ({type(e).__name__}: {e}). "
-                    "Rewrite concisely and comply exactly.\n"
+                validate_summary(
+                    output,
+                    company_name=self.company_name,
+                    max_chars=self.max_chars,
                 )
+                return RunResult(summary=output, attempts_used=attempt)
+            except SummaryValidationError as exc:
+                last_error = exc
+                if attempt < self.max_attempts:
+                    prompt = build_retry_prompt(
+                        base_prompt,
+                        previous_output=output or "<empty>",
+                        validation_error=str(exc),
+                    )
 
-        raise RuntimeError(f"Failed to produce a valid summary: {last_err}")
+        message = "Unable to produce a valid summary"
+        if last_error is not None:
+            message += f" after {self.max_attempts} attempt(s): {last_error}"
+        raise SummaryGenerationError(message) from last_error
 
-    def summarise(self, t: Transcript) -> str:
-        return self.summarise_with_result(t).summary
+    def summarise(self, transcript: Transcript) -> str:
+        return self.summarise_with_result(transcript).summary

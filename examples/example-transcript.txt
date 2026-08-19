@@ -1,0 +1,9 @@
+Interaction Type:	Call
+Interaction ID:	EXAMPLE-001
+Direction:	Inbound
+
+Date/Time	Participant Type	Participant	Text
+00:01	Internal	Alex Morgan	Good morning, claims team. How can I help?
+00:05	External	Jamie Taylor	Hi, I am calling for an update on claim CLM-12345.
+00:12	Internal	Alex Morgan	The claim is with the assessor. They will contact you within two working days.
+00:20	External	Jamie Taylor	Thanks, that is all I needed.
