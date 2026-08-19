@@ -1,106 +1,145 @@
 # Call Summariser
 
-Call Summariser is an open-source Python CLI that turns insurance call transcripts into concise, validated operational summaries using Google Gemini.
+Call Summariser is a free, open-source tool that turns insurance call transcripts into short, useful summaries using Google Gemini.
 
-It is designed for batch workflows where output shape matters: transcripts are parsed locally, Gemini generates the summary, and deterministic validation rejects malformed output before anything is written.
+Give it a folder containing call transcripts and it will create a summary file for each call.
 
-## Features
+It is designed to save someone from reading a full transcript just to understand:
 
-- Parses tab-separated contact-centre exports and `[timestamp] SPEAKER: text` transcripts.
-- Preserves transcript metadata such as direction and interaction identifiers for model context.
-- Treats transcript content as untrusted data to reduce prompt-injection risk.
-- Enforces required summary sections, ordering, action lines, and a configurable character limit.
-- Retries malformed model output with the previous output and exact validation failure supplied as correction context.
-- Uses the Gemini SDK's real HTTP timeout support plus bounded retries for transient failures.
-- Processes transcript batches independently so one bad file does not discard successful work.
-- Writes summaries atomically to avoid leaving truncated files behind.
-- Supports overwrite protection and per-file input-size limits.
-- Ships with local type checking, linting, coverage, and packaging checks.
+- who called
+- what the call was about
+- what happened
+- what needs to happen next
+- important details about liability, damage, injury, property or negotiations when they were discussed
 
-## Requirements
+The tool checks every summary before saving it. If Gemini returns the wrong format, the tool asks it to correct the answer. If one transcript fails, the other transcripts can still be processed.
 
-- Python 3.11+
-- A Google Gemini API key
-- A currently available Gemini text model for your account/project
+## What you need
 
-Model names change over time, so the tool deliberately does not hard-code a model that may later be retired. Configure the model you want to operate explicitly.
+- Python 3.11 or newer
+- a Google Gemini API key
+- the name of a Gemini model you can use
 
-## Installation
+## Quick start
 
-Clone the repository and install it into a virtual environment:
+### 1. Download the project
+
+Clone this repository and open a terminal in the project folder.
+
+### 2. Create a Python environment
 
 ```bash
 python -m venv .venv
 ```
 
-Windows PowerShell:
+On Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e .
 ```
 
-macOS/Linux:
+On macOS or Linux:
 
 ```bash
 source .venv/bin/activate
+```
+
+### 3. Install Call Summariser
+
+```bash
 python -m pip install -e .
 ```
 
-For development tooling:
+### 4. Add your Gemini settings
 
-```bash
-python -m pip install -e ".[dev]"
-```
+Copy `.env.example` to a new file called `.env`.
 
-## Configuration
-
-Copy `.env.example` to `.env` and set:
+Add your own values:
 
 ```dotenv
 GEMINI_API_KEY=your_api_key
-CALL_SUMMARISER_MODEL=your_available_gemini_text_model
+CALL_SUMMARISER_MODEL=your_gemini_model
 CALL_SUMMARISER_COMPANY_NAME=Your Company
 ```
 
-Environment variables already set by the host process take precedence over `.env` values.
+Do not commit your `.env` file or API key to GitHub.
 
-`--model` and `--company-name` can also be supplied directly on the command line and override the corresponding defaults used by the CLI.
+### 5. Add some transcripts
 
-## Usage
+Create a folder called `transcripts` and put your `.txt` transcript files inside it.
 
-Process every `.txt` transcript in a directory:
-
-```bash
-call-summariser \
-  --in-dir transcripts \
-  --out-dir outputs \
-  --company-name "Acme Insurance" \
-  --model "YOUR_GEMINI_MODEL"
-```
-
-The same command can be run without installing the console entry point:
-
-```bash
-python -m call_summariser --in-dir transcripts --out-dir outputs --company-name "Acme Insurance" --model "YOUR_GEMINI_MODEL"
-```
-
-Useful controls:
+There is a simple example in:
 
 ```text
---max-chars N          Maximum generated summary length (default: 1500)
---summary-attempts N   Attempts to repair structurally invalid model output (default: 3)
---request-attempts N   Attempts for transient Gemini/API failures (default: 4)
---request-timeout S    HTTP request timeout in seconds (default: 30)
---max-input-bytes N    Maximum size of each transcript file (default: 5000000)
---no-overwrite         Keep existing output files and skip them
+examples/example-transcript.txt
 ```
 
-The command returns `0` when all files succeed, `1` when a batch completes with one or more per-file failures, and `2` for configuration or batch-level errors.
+### 6. Create the summaries
 
-## Supported transcript formats
+```bash
+call-summariser --in-dir transcripts --out-dir outputs
+```
 
-### Tab-separated contact-centre export
+The summaries will be written to the `outputs` folder.
+
+You can also run the tool like this:
+
+```bash
+python -m call_summariser --in-dir transcripts --out-dir outputs
+```
+
+## Example
+
+If your input folder contains:
+
+```text
+transcripts/
+  call-001.txt
+  call-002.txt
+  call-003.txt
+```
+
+Call Summariser will create files such as:
+
+```text
+outputs/
+  call-001-summary.txt
+  call-002-summary.txt
+  call-003-summary.txt
+```
+
+A summary looks like this:
+
+```text
+Caller:
+Jamie Taylor, Unknown relationship, Inbound
+
+Subject:
+Update on claim CLM-12345
+
+Executive Summary:
+Jamie called for an update on an existing claim. The claim is currently being reviewed and the caller was told when to expect the next update.
+
+Next Steps:
+- Acme Insurance: Contact Jamie when the review is complete.
+- Other: None
+```
+
+If they are relevant to the call, the summary can also include sections for:
+
+- liability
+- negotiations
+- vehicle damage
+- injury
+- property damage
+
+## Transcript formats
+
+Call Summariser understands two common text formats.
+
+### Contact-centre export
+
+The first format uses columns separated by tabs:
 
 ```text
 Interaction Type:    Call
@@ -112,9 +151,11 @@ Date/Time    Participant Type    Participant    Text
 00:05        External            Jamie Taylor   I am calling for an update on claim CLM-12345.
 ```
 
-Tabs, rather than spaces, separate the fields in the actual file. See `examples/example-transcript.txt` for a ready-to-copy example.
+The example above is shown with spaces for readability. In the real file, the columns should be separated by tabs.
 
-### Bracketed transcript
+### Simple timestamp format
+
+It also understands transcripts like this:
 
 ```text
 Direction: Inbound
@@ -123,62 +164,121 @@ Direction: Inbound
 [00:05] CALLER: I am calling for an update on claim CLM-12345.
 ```
 
-Continuation lines without a new timestamp are appended to the preceding utterance.
+If a sentence continues onto the next line without a new timestamp, it is added to the previous line of dialogue.
 
-## Output contract
+## Changing the company or model
 
-Every accepted summary contains these required sections in order:
+You can keep the company name and Gemini model in your `.env` file, or provide them when you run the command:
 
-```text
-Caller:
-...
-Subject:
-...
-Executive Summary:
-...
-Next Steps:
-- Your Company: ...
-- Other: ...
+```bash
+call-summariser \
+  --in-dir transcripts \
+  --out-dir outputs \
+  --company-name "Acme Insurance" \
+  --model "YOUR_GEMINI_MODEL"
 ```
 
-The following sections may appear after `Next Steps:` when materially relevant:
+Command-line values take priority over the values in `.env`.
+
+## Other useful options
+
+You normally do not need to change these, but they are available when needed:
 
 ```text
-Liability Summary:
-Negotiation Summary:
-Vehicle Damage:
-Injury:
-Property:
+--max-chars N          Maximum length of a summary. Default: 1500 characters.
+--summary-attempts N   How many times Gemini can correct a badly formatted summary. Default: 3.
+--request-attempts N   How many times to retry a temporary Gemini/API error. Default: 4.
+--request-timeout S    How long to wait for a Gemini request. Default: 30 seconds.
+--max-input-bytes N    Maximum size of one transcript file. Default: 5 MB.
+--no-overwrite         Do not replace a summary file that already exists.
 ```
 
-Validation ensures that required headers appear exactly once, optional headers are not duplicated, sections are non-empty, no unsupported headers are introduced, `Next Steps` has exactly the two required action lines, and the configured character limit is respected.
+Run this to see all options:
 
-Semantic truth still depends on the selected model. The prompt explicitly prohibits invention and the runtime rejects structural failures, but deterministic code cannot prove that every model-generated statement is factually correct. Human or downstream policy review remains appropriate for high-impact decisions.
+```bash
+call-summariser --help
+```
 
-## Failure handling
+## What happens when something goes wrong?
 
-API retries and summary-repair retries are deliberately separate:
+The tool is designed so that one problem does not ruin the whole batch.
 
-1. Gemini transport failures such as rate limiting, transient server errors, and timeouts use bounded backoff.
-2. A successful model response that violates the summary contract is retried with the exact validation error and previous output.
-3. If one transcript still fails, the batch records that failure and continues with the remaining files.
-4. A summary is written through a temporary file and atomically replaced only after generation succeeds.
+- If Gemini has a temporary error, the request is tried again.
+- If Gemini returns a summary in the wrong format, it is asked to correct it.
+- If one transcript still cannot be summarised, the tool reports that file and moves on to the others.
+- A summary is only saved after it has been completed successfully, so you should not be left with half-written files.
 
-This avoids a network retry being confused with a bad model response and prevents one transcript from invalidating an otherwise successful batch.
+The command returns:
 
-## Security and privacy
+- `0` when every transcript succeeds
+- `1` when some transcripts succeed and others fail
+- `2` when the command itself cannot start correctly, for example because settings are missing
 
-Transcript text is sent to the configured Gemini service. Before using this tool with real customer data, ensure that your organisation's data-processing, retention, residency, consent, and provider agreements permit that transfer.
+## What the tool checks
 
-The prompt tells the model not to reproduce authentication-only or highly sensitive verification data such as passwords, security answers, full dates of birth, payment-card numbers, or bank details. That is a defence-in-depth measure, not a substitute for upstream redaction or a formal data-loss-prevention policy.
+Before a summary is saved, Call Summariser checks that it:
 
-Never commit API keys. `.env` and generated output files are ignored by Git.
+- contains the required sections
+- puts those sections in the right order
+- contains the two required next-step lines
+- does not contain duplicate or unexpected sections
+- is not longer than the allowed limit
 
-For reporting security issues, see `SECURITY.md`.
+Gemini is also told not to invent information that is not in the transcript.
 
-## Development
+No AI system can guarantee that every generated sentence is factually correct. If the summary will be used to make an important decision, it should still be reviewed by a person or another suitable checking process.
 
-Run the quality gate locally:
+## Privacy and customer data
+
+Transcript text is sent to the Google Gemini service you configure.
+
+Before using real customer calls, make sure your organisation allows that data to be sent to Gemini and that your privacy, data retention and data location requirements are covered.
+
+The tool tells Gemini not to repeat highly sensitive information such as:
+
+- passwords
+- security answers
+- full dates of birth used for identity checks
+- payment card numbers
+- bank details
+
+You should still remove sensitive information before sending transcripts if your organisation requires it.
+
+Never commit API keys, real customer transcripts or generated customer summaries to a public repository.
+
+See `SECURITY.md` for information about reporting security problems.
+
+## How it works
+
+At a high level the process is simple:
+
+```text
+Transcript file
+      |
+      v
+Read and understand the transcript
+      |
+      v
+Send it to Gemini with summary instructions
+      |
+      v
+Check the answer
+      |
+      v
+Save the summary
+```
+
+The code keeps the Gemini connection separate from the rest of the summarising logic. This makes it easier to support another AI provider in the future without rewriting the whole tool.
+
+## For developers
+
+Install the development tools with:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+Run the local checks with:
 
 ```bash
 ruff check .
@@ -187,30 +287,14 @@ pytest --cov=call_summariser --cov-report=term-missing
 python -m build
 ```
 
-## Architecture
-
-```text
-text file
-   |
-   v
-transcript_parser.py
-   |
-   v
-prompting.py -> GeminiLLM -> generated text
-                         |
-                         v
-                 summary_validator.py
-                         |
-                         v
-                    atomic output
-```
-
-The `Summariser` depends on a small `LLM` protocol rather than the Gemini SDK directly. This keeps generation policy independent from transport and makes alternative providers straightforward to add without rewriting parsing or validation.
+The project does not use GitHub Actions. These checks are run locally, so using or contributing to the repository does not require paid GitHub Actions minutes.
 
 ## Contributing
 
-Issues and pull requests are welcome. See `CONTRIBUTING.md` for the local quality requirements and contribution workflow.
+Contributions are welcome.
+
+See `CONTRIBUTING.md` for the contribution guide.
 
 ## Licence
 
-MIT. See `LICENSE`.
+Call Summariser is released under the MIT Licence. See `LICENSE`.
