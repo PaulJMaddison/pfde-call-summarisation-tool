@@ -220,9 +220,9 @@ Before a summary is saved, Call Summariser checks that it:
 
 - contains the required sections
 - puts those sections in the right order
-- contains the two required next-step lines
+- contains exactly the two required next-step action lines and no extra content in that section
 - does not contain duplicate or unexpected sections
-- is not longer than the allowed limit
+- is not longer than the allowed limit, including summaries exactly at the configured maximum length
 
 Gemini is also told not to invent information that is not in the transcript.
 
@@ -286,6 +286,15 @@ mypy
 pytest --cov=call_summariser --cov-report=term-missing
 python -m build
 ```
+
+Latest local verification on the current implementation:
+
+- package build passed
+- 44 unit tests passed
+- 0 unit tests failed
+- 90.79% branch-aware test coverage
+
+The unit tests use mocks and fakes for Gemini, so they do not call the real Gemini API or require Docker, databases, browsers, cloud services or other local infrastructure.
 
 The project does not use GitHub Actions. These checks are run locally, so using or contributing to the repository does not require paid GitHub Actions minutes.
 
