@@ -1,15 +1,8 @@
 from __future__ import annotations
 
-import importlib
-import importlib.util
+from dotenv import load_dotenv
 
 
 def load_dotenv_if_available() -> None:
-    """Load environment variables from a .env file when python-dotenv is installed."""
-    if importlib.util.find_spec("dotenv") is None:
-        return
-
-    dotenv_module = importlib.import_module("dotenv")
-    load_dotenv = getattr(dotenv_module, "load_dotenv", None)
-    if callable(load_dotenv):
-        load_dotenv()
+    """Load a local .env file without overriding already configured environment variables."""
+    load_dotenv(override=False)
