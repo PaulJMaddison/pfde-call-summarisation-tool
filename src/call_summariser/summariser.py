@@ -48,7 +48,7 @@ class Summariser:
         for attempt in range(1, self.max_attempts + 1):
             generated = self.llm.generate(prompt)
             output = (generated or "").strip()
-            if output:
+            if output and len(output) < self.max_chars:
                 output += "\n"
 
             try:

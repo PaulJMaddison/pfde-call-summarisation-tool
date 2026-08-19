@@ -50,3 +50,24 @@ def test_rejects_invalid_configuration():
         Summariser(llm=llm, company_name="", max_attempts=1)
     with pytest.raises(ValueError):
         Summariser(llm=llm, company_name="Acme", max_attempts=0)
+
+
+def test_accepts_valid_output_exactly_at_character_limit():
+    template = (
+        "Caller:\nX\nSubject:\nY\nExecutive Summary:\n{}\n"
+        "Next Steps:\n- Acme: None\n- Other: None"
+    )
+    max_chars = 200
+    padding = "x" * (max_chars - len(template.format("")))
+    generated = template.format(padding)
+    assert len(generated) == max_chars
+
+    result = Summariser(
+        llm=SequenceLLM([generated]),
+        company_name="Acme",
+        max_attempts=1,
+        max_chars=max_chars,
+    ).summarise_with_result(transcript())
+
+    assert result.summary == generated
+    assert len(result.summary) == max_chars

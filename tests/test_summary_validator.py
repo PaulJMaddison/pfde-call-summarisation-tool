@@ -99,3 +99,12 @@ def test_rejects_missing_next_step_party_lines():
     missing_other = valid_summary().replace("- Other: None\n", "")
     with pytest.raises(SummaryValidationError, match="Other"):
         validate_summary(missing_other, company_name=COMPANY)
+
+
+def test_rejects_extra_prose_in_next_steps():
+    text = valid_summary().replace(
+        "- Other: None\n",
+        "plain extra instruction\n- Other: None\n",
+    )
+    with pytest.raises(SummaryValidationError, match="unsupported action"):
+        validate_summary(text, company_name=COMPANY)

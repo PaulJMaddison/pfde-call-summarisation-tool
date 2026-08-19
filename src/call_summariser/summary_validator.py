@@ -88,10 +88,10 @@ def validate_summary(text: str, *, company_name: str, max_chars: int = 1500) -> 
             "Next Steps must contain exactly one '- Other:' action line."
         )
 
-    unexpected_actions = [
-        line
-        for line in next_steps
-        if line.startswith("-") and line not in (*company_lines, *other_lines)
+    unexpected_lines = [
+        line for line in next_steps if line not in (*company_lines, *other_lines)
     ]
-    if unexpected_actions:
-        raise SummaryValidationError("Next Steps contains an unsupported action line.")
+    if unexpected_lines:
+        raise SummaryValidationError(
+            "Next Steps contains an unsupported action line or extra content."
+        )
