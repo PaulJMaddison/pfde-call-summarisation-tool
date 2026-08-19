@@ -15,7 +15,7 @@ It is designed for batch workflows where output shape matters: transcripts are p
 - Processes transcript batches independently so one bad file does not discard successful work.
 - Writes summaries atomically to avoid leaving truncated files behind.
 - Supports overwrite protection and per-file input-size limits.
-- Ships with type checking, linting, coverage, packaging checks, and CI across supported Python versions.
+- Ships with local type checking, linting, coverage, and packaging checks.
 
 ## Requirements
 
@@ -186,8 +186,6 @@ mypy
 pytest --cov=call_summariser --cov-report=term-missing
 python -m build
 ```
-
-CI runs the same core checks on Python 3.11, 3.12, and 3.13.
 
 ## Architecture
 
